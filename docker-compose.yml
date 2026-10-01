@@ -1,6 +1,7 @@
-# Local platform. Infrastructure starts by default; services need the `app` profile:
+# Local platform. Infrastructure starts by default; the rest is opt-in by profile:
 #   docker compose up -d                       # infrastructure only (run services from your IDE)
 #   docker compose --profile app up -d --build # infrastructure + services
+#   docker compose --profile gateway up -d     # adds WSO2 API Manager; then run infra/wso2/bootstrap.sh
 #   docker compose --profile tools up -d       # adds Kafka UI on http://localhost:8090
 name: souqly
 
@@ -77,6 +78,28 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  apim:
+    # WSO2 API Manager: the public API gateway plus publisher and developer portals.
+    # Heavy (about 2 GB RAM, 2-3 minutes to start), so it has its own profile.
+    image: wso2/wso2am:4.5.0
+    profiles: [gateway]
+    ports:
+      - "9443:9443" # consoles and REST APIs: https://localhost:9443/publisher, /devportal, /admin
+      - "8243:8243" # gateway (HTTPS)
+      - "8280:8280" # gateway (HTTP)
+    environment:
+      JAVA_OPTS: "-Xms512m -Xmx2g"
+    volumes:
+      - ./infra/wso2/deployment.toml:/home/wso2carbon/wso2-config-volume/repository/conf/deployment.toml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -skf -o /dev/null https://localhost:9443/api/am/devportal/v3/apis"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    depends_on:
+      keycloak: {condition: service_healthy}
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest

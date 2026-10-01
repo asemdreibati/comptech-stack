@@ -6,8 +6,8 @@ an ADR that explains its hardest decision.
 | # | Phase | Stack it exercises | Status |
 |---|---|---|---|
 | 1 | **Inventory and flash sales**: reservations, expiry, Redis admission gate, group commit, transactional outbox | Spring Boot, MongoDB, Redis, Kafka | ✅ Done |
-| 2 | **Identity and API gateway**: buyer/seller/admin realms, service-to-service tokens, rate limits per seller application | Keycloak, WSO2 API Manager | Next |
-| 3 | **Catalog and search**: category-specific listing schemas, product images, Arabic/English search with typo tolerance, availability fed from inventory events | MongoDB, Form.io, MinIO, OpenSearch, Kafka | Planned |
+| 2 | **Identity and API gateway**: roles mapped to per-service permissions, service-to-service tokens, seller ownership checks, subscription plans and rate limits for seller integrations | Keycloak, WSO2 API Manager | ✅ Done |
+| 3 | **Catalog and search**: category-specific listing schemas, product images, Arabic/English search with typo tolerance, availability fed from inventory events | MongoDB, Form.io, MinIO, OpenSearch, Kafka | Next |
 | 4 | **Orders and payments**: checkout saga (reserve, pay, confirm), with compensation and idempotent payment capture, Avro events with Schema Registry | Spring Boot, Kafka (Confluent Schema Registry), MongoDB | Planned |
 | 5 | **Seller onboarding and returns**: KYC forms, approval and dispute workflows with SLA timers | Camunda, Form.io, MinIO | Planned |
 | 6 | **Trust and recommendations**: linked seller accounts (shared bank, address or device), "customers also bought" | Neo4j, Kafka | Planned |

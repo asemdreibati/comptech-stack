@@ -52,3 +52,20 @@ jobs:
         run: docker run --rm -i --network host -e GATE=false -e BUYERS=10000 -e VUS=200 -e P99_MS=2000 grafana/k6 run - < load-tests/flash-sale.js
       - if: failure()
         run: docker compose logs --no-color inventory-service | tail -200
+
+  gateway-e2e:
+    name: Gateway end to end (Keycloak + WSO2 API Manager)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: inventory-service-jar
+          path: services/inventory-service/target
+      - run: docker compose --profile app --profile gateway up -d --build --wait
+      - run: infra/wso2/bootstrap.sh
+      - run: infra/wso2/smoke-test.sh
+      - if: failure()
+        run: docker compose logs --no-color apim inventory-service keycloak | tail -300

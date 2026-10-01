@@ -1,0 +1,112 @@
+openapi: 3.0.3
+info:
+  title: Souqly Inventory API
+  version: v1
+  description: |
+    Public surface of the inventory service for seller integrations and marketplace
+    operations. Reservations are deliberately absent: only the order service calls them, over
+    the internal network.
+
+    Authenticate with a Keycloak access token (client credentials for integrations). The gateway
+    enforces subscription rate limits; the service enforces permissions and SKU ownership.
+servers:
+  - url: https://localhost:8243/inventory/v1
+paths:
+  /stock/{sku}:
+    get:
+      summary: Read stock for a SKU
+      operationId: getStock
+      parameters:
+        - $ref: '#/components/parameters/Sku'
+      responses:
+        '200':
+          description: Current stock
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Stock'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /stock/{sku}/restock:
+    post:
+      summary: Add sellable units (sellers can only restock SKUs they own)
+      operationId: restock
+      parameters:
+        - $ref: '#/components/parameters/Sku'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: {type: integer, minimum: 1, maximum: 1000000}
+      responses:
+        '200':
+          description: Stock after the restock
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Stock'}
+        '403': {$ref: '#/components/responses/Problem'}
+  /flash-sales/{sku}:
+    get:
+      summary: Remaining flash-sale allocation
+      operationId: getFlashSale
+      parameters:
+        - $ref: '#/components/parameters/Sku'
+      responses:
+        '200':
+          description: Armed sale
+        '404':
+          description: No sale armed
+    put:
+      summary: Arm a flash sale (operations staff only)
+      operationId: armFlashSale
+      parameters:
+        - $ref: '#/components/parameters/Sku'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tokens: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Sale armed
+    delete:
+      summary: Disarm a flash sale (operations staff only)
+      operationId: disarmFlashSale
+      parameters:
+        - $ref: '#/components/parameters/Sku'
+      responses:
+        '204':
+          description: Sale disarmed
+components:
+  parameters:
+    Sku:
+      name: sku
+      in: path
+      required: true
+      schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'}
+  schemas:
+    Stock:
+      type: object
+      properties:
+        sku: {type: string}
+        sellerId: {type: string, nullable: true}
+        available: {type: integer}
+        reserved: {type: integer}
+        updatedAt: {type: string, format: date-time}
+  responses:
+    Problem:
+      description: RFC 9457 problem details with a stable `code`
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              type: {type: string}
+              title: {type: string}
+              status: {type: integer}
+              detail: {type: string}
+              code: {type: string}

@@ -195,6 +195,17 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "wso2-apim",
+      "name": "WSO2 API Manager key manager connector",
+      "description": "Lets the API gateway look up OAuth clients (read-only) when sellers map their integration to an application.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "wso2-apim-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -311,6 +322,17 @@
       "realmRoles": [
         "admin"
       ]
+    },
+    {
+      "username": "service-account-wso2-apim",
+      "enabled": true,
+      "serviceAccountClientId": "wso2-apim",
+      "clientRoles": {
+        "realm-management": [
+          "view-clients",
+          "query-clients"
+        ]
+      }
     }
   ],
   "components": {
