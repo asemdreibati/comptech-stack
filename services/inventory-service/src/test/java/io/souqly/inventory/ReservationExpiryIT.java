@@ -39,7 +39,7 @@ class ReservationExpiryIT {
     @Test
     void abandonedReservationsReturnStockAndGateTokens() {
         String sku = "EXP-" + UUID.randomUUID();
-        stock.restock(sku, 2);
+        stock.restock(sku, 2, TestCallers.OPERATIONS);
         flashSales.arm(sku, 2L);
 
         var reservation = reservations.reserve("order-" + UUID.randomUUID(), List.of(new ReservationLine(sku, 2)))

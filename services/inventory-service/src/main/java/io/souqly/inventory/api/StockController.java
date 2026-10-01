@@ -2,10 +2,12 @@ package io.souqly.inventory.api;
 
 import io.souqly.inventory.api.ApiModels.RestockRequest;
 import io.souqly.inventory.api.ApiModels.StockResponse;
+import io.souqly.inventory.security.Caller;
 import io.souqly.inventory.stock.StockService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,7 +32,7 @@ class StockController {
 
     @PostMapping("/{sku}/restock")
     StockResponse restock(@PathVariable @Pattern(regexp = ApiModels.IDENTIFIER) String sku,
-            @Valid @RequestBody RestockRequest request) {
-        return StockResponse.from(stock.restock(sku, request.quantity()));
+            @Valid @RequestBody RestockRequest request, Authentication authentication) {
+        return StockResponse.from(stock.restock(sku, request.quantity(), Caller.from(authentication)));
     }
 }

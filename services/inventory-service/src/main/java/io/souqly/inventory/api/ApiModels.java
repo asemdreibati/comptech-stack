@@ -29,10 +29,11 @@ final class ApiModels {
     record RestockRequest(@NotNull @Positive @Max(1_000_000) Long quantity) {
     }
 
-    record StockResponse(String sku, long available, long reserved, Instant updatedAt) {
+    record StockResponse(String sku, String sellerId, long available, long reserved, Instant updatedAt) {
 
         static StockResponse from(StockItem item) {
-            return new StockResponse(item.sku(), item.available(), item.reserved(), item.updatedAt());
+            return new StockResponse(item.sku(), item.sellerId(), item.available(), item.reserved(),
+                    item.updatedAt());
         }
     }
 

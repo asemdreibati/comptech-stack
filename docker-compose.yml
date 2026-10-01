@@ -56,6 +56,28 @@ services:
       retries: 10
       start_period: 15s
 
+  keycloak:
+    image: keycloak/keycloak:26.4
+    # Development mode with the Souqly realm imported on first boot. Production runs
+    # `start --optimized` against PostgreSQL behind TLS.
+    command: ["start-dev", "--import-realm"]
+    ports: ["8180:8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Tokens always carry the public issuer, while services fetch keys over the internal network.
+      KC_HOSTNAME: http://localhost:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes: [./infra/keycloak:/opt/keycloak/data/import:ro]
+    healthcheck:
+      # The image ships without curl, so speak HTTP to the management port directly.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     profiles: [tools]
@@ -74,8 +96,11 @@ services:
       MONGODB_URI: mongodb://mongo:27017/souqly_inventory?replicaSet=rs0
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     depends_on:
+      keycloak: {condition: service_healthy}
       mongo: {condition: service_healthy}
       redis: {condition: service_healthy}
       kafka: {condition: service_healthy}

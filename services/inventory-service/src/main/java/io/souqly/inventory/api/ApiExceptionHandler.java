@@ -7,6 +7,7 @@ import io.souqly.inventory.reservation.IdempotencyConflictException;
 import io.souqly.inventory.reservation.ReservationNotFoundException;
 import io.souqly.inventory.reservation.ReservationStateException;
 import io.souqly.inventory.stock.InsufficientStockException;
+import io.souqly.inventory.stock.StockAccessDeniedException;
 import io.souqly.inventory.stock.StockNotFoundException;
 import io.souqly.inventory.support.TransactionContentionException;
 
@@ -37,6 +38,11 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("requested", ex.requested());
         problem.setProperty("available", ex.available());
         return problem;
+    }
+
+    @ExceptionHandler
+    ProblemDetail stockAccessDenied(StockAccessDeniedException ex) {
+        return problem(HttpStatus.FORBIDDEN, ex.reason().name(), "Forbidden", ex.getMessage());
     }
 
     @ExceptionHandler

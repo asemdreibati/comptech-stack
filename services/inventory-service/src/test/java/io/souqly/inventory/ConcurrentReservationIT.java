@@ -57,7 +57,7 @@ class ConcurrentReservationIT {
     @Test
     void neverOversellsWithoutTheGate() throws Exception {
         String sku = "HOT-" + UUID.randomUUID();
-        stock.restock(sku, STOCK);
+        stock.restock(sku, STOCK, TestCallers.OPERATIONS);
 
         Map<String, AtomicInteger> outcomes = race(BUYERS, i -> List.of(new ReservationLine(sku, 1)));
 
@@ -69,7 +69,7 @@ class ConcurrentReservationIT {
     @Test
     void neverOversellsWithTheGateArmed() throws Exception {
         String sku = "FLASH-" + UUID.randomUUID();
-        stock.restock(sku, STOCK);
+        stock.restock(sku, STOCK, TestCallers.OPERATIONS);
         flashSales.arm(sku, null);
 
         Map<String, AtomicInteger> outcomes = race(BUYERS, i -> List.of(new ReservationLine(sku, 1)));
@@ -84,8 +84,8 @@ class ConcurrentReservationIT {
     void multiLineOrdersStayConsistentUnderContention() throws Exception {
         String a = "PAIR-A-" + UUID.randomUUID();
         String b = "PAIR-B-" + UUID.randomUUID();
-        stock.restock(a, 40);
-        stock.restock(b, 60);
+        stock.restock(a, 40, TestCallers.OPERATIONS);
+        stock.restock(b, 60, TestCallers.OPERATIONS);
 
         // Lines arrive in both orders; every order needs one A and two B, so B runs out first.
         Map<String, AtomicInteger> outcomes = race(300, i -> i % 2 == 0
@@ -101,7 +101,7 @@ class ConcurrentReservationIT {
     void concurrentRetriesOfOneOrderReserveOnce() throws Exception {
         String sku = "RETRY-" + UUID.randomUUID();
         String orderId = "order-" + UUID.randomUUID();
-        stock.restock(sku, 10);
+        stock.restock(sku, 10, TestCallers.OPERATIONS);
 
         Set<String> reservationIds = ConcurrentHashMap.newKeySet();
         var start = new CountDownLatch(1);

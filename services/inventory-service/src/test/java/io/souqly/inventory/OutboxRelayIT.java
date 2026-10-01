@@ -48,7 +48,7 @@ class OutboxRelayIT {
     void publishesEveryStateChangeInOrderKeyedByReservation() {
         String sku = "EVT-" + UUID.randomUUID();
         String orderId = "order-" + UUID.randomUUID();
-        stock.restock(sku, 5);
+        stock.restock(sku, 5, TestCallers.OPERATIONS);
         var reservation = reservations.reserve(orderId, List.of(new ReservationLine(sku, 2))).reservation();
         reservations.confirm(reservation.id());
 
