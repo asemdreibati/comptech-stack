@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: inventory-service
+  threads:
+    virtual:
+      enabled: true
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/souqly_inventory?directConnection=true}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # The flash-sale gate fails open, so a slow Redis must not stall checkout.
+      timeout: 250ms
+      connect-timeout: 1s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        # Redis is optional at runtime (the gate fails open), so it must not take the pod out of rotation.
+        readiness:
+          include: readinessState,mongo
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+souqly:
+  inventory:
+    reservation-ttl: PT10M
+    expiry-sweep-interval: PT5S
+    outbox:
+      topic: inventory.reservation-events.v1
