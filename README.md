@@ -1,164 +1,165 @@
 # Souqly
 
 A multi-seller e-commerce marketplace backend, built the way large marketplaces build theirs:
-event-driven services, correctness under concurrency, zero-trust security, and load tests that
-prove it.
+event-driven services, correctness under concurrency, zero-trust security, and tests and load
+tests that prove it.
 
 [![CI](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml)
 
-> **Status:** phases 1–2 of 9 are done.
+> **Status:** phases 1–3 of 9 are done.
 > **Phase 1:** an inventory service that cannot oversell during flash sales.
-> **Phase 2:** Keycloak identity, per-object authorization, and a WSO2 API gateway with
-> subscription plans for sellers.
-> Next: catalog and search, orders and payments, seller workflows, storefront ([roadmap](docs/roadmap.md)).
+> **Phase 2:** Keycloak identity, per-object authorization, and a WSO2 API gateway.
+> **Phase 3:** a catalog whose category schemas live in Form.io, verified image uploads to MinIO,
+> and Arabic/English search on OpenSearch built purely from events.
+> Next: orders and payments ([roadmap](docs/roadmap.md)).
 
 ## Architecture today
 
 ```mermaid
 flowchart LR
-    ERP[Seller ERP<br/>integration] -->|Keycloak JWT| GW[WSO2 API Manager<br/>plans, rate limits,<br/>subscriptions]
-    GW -->|forwards token| INV
-    ORD[Order service<br/>planned] -->|client-credentials JWT<br/>internal network| INV[inventory-service<br/>re-validates every token]
-    KC[(Keycloak<br/>souqly realm)] -. issues tokens .-> ERP
-    KC -. JWKS .-> GW
-    KC -. JWKS .-> INV
-    INV --> M[(MongoDB)]
+    subgraph clients[Clients]
+        ERP[Seller ERP]
+        WEB[Storefront / seller portal]
+    end
+    GW[WSO2 API Manager<br/>Inventory · Catalog · Storefront APIs]
+    ERP -->|Keycloak JWT| GW
+    WEB -->|public search| GW
+    WEB -.->|presigned upload| MINIO[(MinIO)]
+    GW --> INV[inventory-service]
+    GW --> CAT[catalog-service]
+    GW --> SRCH[search-service]
+    ORD[order service<br/>planned] -->|JWT, internal| INV
+    CAT -->|dry-run validation| FIO[Form.io<br/>category schemas]
+    CAT --> MINIO
     INV --> R[(Redis)]
-    INV --> K[[Kafka]]
+    INV & CAT --> M[(MongoDB)]
+    INV -->|stock levels| K[[Kafka<br/>compacted topics]]
+    CAT -->|listing snapshots| K
+    K --> SRCH --> OS[(OpenSearch)]
+    KC[(Keycloak)] -. JWKS .-> GW & INV & CAT
 ```
+
+Every service validates every token itself, publishes through a transactional outbox, and shares
+one platform library (`libs/platform`) for security, events and transactions.
 
 ## Phase 1: a flash sale that cannot oversell
 
 20,000 people try to buy the same 1,000 phones in the same second. The system must sell
-**exactly** 1,000 (never 1,001, never 999), turn the other 19,000 away fast, survive retries,
-abandoned carts and crashes, and tell the rest of the platform about every change.
+**exactly** 1,000, turn the other 19,000 away fast, and survive retries, abandoned carts and crashes.
 
-Results from `load-tests/flash-sale.js` (20,000 buyers, 300 concurrent users, 1,000 units):
-
-| | Units sold | Errors | Throughput | p95 latency |
+| `load-tests/flash-sale.js` (20,000 buyers, 1,000 units) | Units sold | Errors | Throughput | p95 |
 |---|---|---|---|---|
-| First design: per-SKU locking, one commit per order | 1,000 | **7.1%** timed out | ~880 req/s | 2.1 s |
+| First design: per-SKU locking, one commit per order | 1,000 | **7.1%** | ~880 req/s | 2.1 s |
 | + group commit | 1,000 | 0 | 2,550–2,750 req/s | 210–230 ms |
 | + Redis admission gate | 1,000 | 0 | **3,900–4,500 req/s** | 170–225 ms |
-| + Keycloak JWT validated on every request (phase 2) | 1,000 | 0 | 2,450–3,100 req/s | 230–300 ms |
+| + Keycloak JWT on every request (phase 2) | 1,000 | 0 | 2,450–3,100 req/s | 230–300 ms |
+| + stock-level events for search (phase 3) | 1,000 | 0 | 2,370–3,080 req/s | 240–340 ms |
 
-Measured on a 4 vCPU dev container with the load generator on the same machine, so read these as
-relative gains, not production capacity. CI reruns the test on every push and fails the build if a
-single unit is oversold or undersold.
+Measured on a shared 4 vCPU dev box with the load generator on it, so read these as relative
+gains, not production capacity. How it works: guarded MongoDB transactions, a Redis Lua gate that
+fails open, group commit (flat combining), idempotent order IDs, and a transactional outbox to
+Kafka. See [ADR 0001](docs/adr/0001-inventory-reservations.md).
 
-How it works:
+## Phase 2: identity, authorization and the gateway
 
-1. **MongoDB is the source of truth.** Every unit is taken with a guarded update
-   (`available >= qty`) in a transaction that also writes the reservation and its event.
-2. **Redis admission gate.** During a sale, an atomic Lua script hands out tokens, and requests
-   without one are rejected before reaching MongoDB. If Redis is down, the gate lets everything
-   through to MongoDB, which still prevents overselling.
-3. **Group commit (flat combining).** Requests for a hot SKU queue up; the thread holding the
-   SKU's lock commits the whole queue in **one** transaction, so one disk sync covers up to 200
-   orders. This took the service from 7% failures to zero.
-4. **Idempotency.** The order ID is a unique key, so a retried request gets the original
-   reservation back.
-5. **Transactional outbox** to Kafka, and **leaderless expiry** of abandoned reservations.
+- **Roles in Keycloak, permissions in services.** Business roles are composites of each service's
+  own permissions; the realm is code (`infra/keycloak/souqly-realm.json`).
+- **Zero trust.** Every service validates signature, issuer, expiry and audience, even behind
+  the gateway.
+- **Object-level authorization.** Sellers can only touch their own SKUs and listings. The owner
+  check is part of the database write itself (no check-then-act race), and it fails closed.
+- **WSO2 API Manager** with Keycloak as its key manager: subscription plans for seller
+  integrations, and internal APIs simply not published. Configured as code and tested in CI.
 
-Details, alternatives and limitations: [ADR 0001](docs/adr/0001-inventory-reservations.md).
+See [ADR 0002](docs/adr/0002-identity-and-api-gateway.md).
 
-## Phase 2: identity, authorization and the API gateway
+## Phase 3: catalog and search
 
-| Caller | Can do | How it is enforced |
-|---|---|---|
-| Buyer | nothing on inventory (acts through the order service) | Token is not even addressed to the service (`aud`), so it gets 401 |
-| Seller (person or ERP integration) | read stock, restock **only SKUs it owns** | `stock:write` permission + ownership check inside the atomic upsert, so another seller gets 403 |
-| Order service | read stock, reserve, confirm, release | `reservation:write`, internal network only (not published on the gateway) |
-| Operations | everything, including flash sales and any seller's stock | `flash-sale:manage`, `stock:write-any` |
+- **Category schemas are Form.io forms** (`infra/formio/forms`), so a new attribute is a form
+  change, not a release. Listings are validated by Form.io's own engine (dry run), and fields the
+  form does not define are stripped. Testing showed the community edition does not enforce
+  dropdown options on the server, so the catalog closes that gap.
+- **Facets are declared in the form** (`properties.facet`). Search builds filters for any
+  category without knowing its schema.
+- **Optimistic concurrency over HTTP:** `ETag` on every listing, `If-Match` required on update
+  (`428` without it, `412` when stale).
+- **Images go browser → MinIO directly** through presigned URLs that sign the type and size.
+  The catalog then checks the file's real size and first bytes before promoting it to the public
+  area. A script disguised as a PNG is deleted.
+- **Search is a read model built only from compacted Kafka topics.** One document per SKU merges
+  listing snapshots and stock levels using version-guarded upserts. Late, duplicate or replayed
+  events change nothing, so batches retry safely, poison messages go to a dead-letter topic, and
+  the index can be rebuilt from the topics.
+- **Arabic and English search:** Arabic normalisation and stemming (`ايفون` finds `آيفون`), typo
+  tolerance, autocomplete in both languages, and **disjunctive facets** (choosing 128 GB still
+  shows how many 256 GB phones exist).
 
-- **Roles in Keycloak, permissions in services.** Business roles (`seller`, `admin`) are
-  composites of each service's own permissions, so changing who can do what is a Keycloak change,
-  not a code change. The realm is code: `infra/keycloak/souqly-realm.json`.
-- **Zero trust.** The service validates signature, issuer, expiry and audience on every request,
-  even behind the gateway. Tests prove that tokens with the wrong audience and tokens with an
-  edited payload are rejected.
-- **Broken object-level authorization is closed.** A seller cannot restock another seller's SKU
-  (the #1 OWASP API risk). The owner check is part of the write itself, so there is no
-  check-then-act race, and a seller token without a seller ID fails closed.
-- **WSO2 API Manager for external traffic only.** Keycloak is registered as WSO2's key manager.
-  Seller integrations are mapped to applications on **Starter** (60/min) or **Business**
-  (6,000/min) plans. The gateway enforces subscriptions and quotas, then forwards the original
-  token so the service makes its own decisions. Internal APIs are simply not published.
-- **Configured as code and tested in CI.** `infra/wso2/bootstrap.sh` sets up WSO2 through its REST
-  APIs, and `infra/wso2/smoke-test.sh` checks nine end-to-end behaviours with real tokens on
-  every push.
+See [ADR 0003](docs/adr/0003-catalog-and-search.md).
 
-Details, measurements and limitations: [ADR 0002](docs/adr/0002-identity-and-api-gateway.md).
+## How it is verified
 
-## Production readiness
-
-| Concern | How it is handled |
+| Layer | What runs |
 |---|---|
-| Correctness under concurrency | Integration tests race 600 threads for 100 units (gate on and off), multi-SKU orders in both line orders, and 200 simultaneous retries of one order |
-| Real infrastructure in tests | Testcontainers runs MongoDB (replica set), Redis, Kafka and Keycloak, with no mocks |
-| Security | OAuth2 resource server, audience-restricted tokens, per-object authorization, 17-case authorization matrix, real-token end-to-end tests, gateway smoke test in CI |
-| API errors | RFC 9457 problem details with stable `code` fields, including 401/403 (`NOT_SKU_OWNER`, `INSUFFICIENT_STOCK`, ...) |
-| Overload | Bounded lock waits shed load with `503` + `Retry-After`; gateway quotas per subscription |
-| Observability | Prometheus metrics (batch sizes, lock waits, gate failures, transaction retries, outbox publishes, token-cache hit rate), ECS JSON logs, liveness and readiness probes |
-| Degradation | Redis is excluded from readiness; Keycloak keys are fetched lazily, so a brief outage does not stop the service |
-| Packaging | Layered, non-root Docker image with a health check |
-| CI | Build and integration tests, flash-sale load test, gateway end-to-end test |
+| Unit and integration tests | 62 tests on real MongoDB, Redis, Kafka, Keycloak, Form.io, MinIO and OpenSearch in Testcontainers, with no mocks: concurrency races, authorization matrix, tampered tokens, ETag conflicts, disguised uploads, out-of-order events, Arabic matching, dead-lettering |
+| Marketplace journey | `infra/e2e/marketplace-smoke.sh`: a seller lists, uploads, publishes and restocks a phone; search finds it in both languages and in stock; the order service sells it out; search shows it sold out |
+| Gateway | `infra/wso2/smoke-test.sh`: 15 checks across the Inventory, Catalog and Storefront APIs (auth, subscriptions, ownership, public search, rate limits) |
+| Load | Flash-sale test fails the build on a single oversold or undersold unit |
+| CI | All of the above on every push, the platform started from scratch |
+
+Operational basics everywhere: RFC 9457 errors with stable codes, Prometheus metrics, ECS JSON
+logs, liveness and readiness probes (readiness tracks each service's critical dependency),
+layered non-root images, and graceful shutdown.
 
 ## Run it
 
-Requirements: Java 21, Docker, and `curl` + `jq` for the gateway scripts.
+Requirements: Java 21, Docker, `curl` and `jq`. About 6 GB of RAM for the platform, plus 2 GB for
+the gateway.
 
 ```bash
-./mvnw -pl services/inventory-service -am package -DskipTests
-docker compose --profile app up -d --build --wait     # Keycloak, MongoDB, Redis, Kafka, inventory-service
+./mvnw package -DskipTests
+docker compose --profile app up -d --build --wait   # all infrastructure + inventory, catalog, search
+infra/e2e/marketplace-smoke.sh                      # loads the category forms, then the full journey
 ```
 
-Get a token and call the service directly (the internal path):
-
-```bash
-TOKEN=$(curl -s localhost:8180/realms/souqly/protocol/openid-connect/token -d grant_type=client_credentials \
-  -d client_id=souqly-ops -d client_secret=souqly-ops-dev-secret | jq -r .access_token)
-
-curl -X POST localhost:8081/api/v1/stock/PHONE-128GB/restock -H "Authorization: Bearer $TOKEN" \
-     -H 'Content-Type: application/json' -d '{"quantity": 100}'
-curl -X POST localhost:8081/api/v1/reservations -H "Authorization: Bearer $TOKEN" \
-     -H 'Content-Type: application/json' -d '{"orderId": "order-1001", "lines": [{"sku": "PHONE-128GB", "quantity": 2}]}'
-```
-
-Add the API gateway (about 2 GB RAM and 2 minutes to start), configure it, and verify it:
+Add the API gateway:
 
 ```bash
 docker compose --profile app --profile gateway up -d --wait
-infra/wso2/bootstrap.sh       # prints a ready-to-run gateway call for the ACME seller integration
-infra/wso2/smoke-test.sh
+infra/wso2/bootstrap.sh && infra/wso2/smoke-test.sh
+curl -k 'https://localhost:8243/storefront/v1/search?q=phone&f.storage=256&inStock=true'
 ```
 
-Useful URLs: API docs http://localhost:8081/swagger-ui.html · Keycloak http://localhost:8180
-(admin/admin) · WSO2 publisher and developer portal https://localhost:9443/publisher and
-`/devportal` (admin/admin).
+| What | Where |
+|---|---|
+| Inventory, catalog, search APIs | http://localhost:8081, :8082, :8083 (each has `/swagger-ui.html`) |
+| Gateway | https://localhost:8243/{inventory,catalog,storefront}/v1 · portals at https://localhost:9443/publisher, `/devportal` (admin/admin) |
+| Keycloak | http://localhost:8180 (admin/admin) |
+| Form.io | http://localhost:3001 (admin@souqly.dev / formio-admin-dev) |
+| MinIO console | http://localhost:9001 (souqly / souqly-minio-dev-secret) |
+| OpenSearch | http://localhost:9200 |
 
-Development accounts (realm file): `buyer`, `seller-acme`, `seller-globex`, `admin` through the
-`souqly-dev-cli` client, plus service accounts `order-service`, `souqly-ops` and
-`seller-acme-integration`. All secrets are development-only.
-
-Tests: `./mvnw verify` (needs Docker). Load test:
-`docker run --rm -i --network host grafana/k6 run - < load-tests/flash-sale.js`.
+Development accounts (`souqly-dev-cli` client): `buyer`, `seller-acme`, `seller-globex`, `admin`.
+Service accounts: `order-service`, `souqly-ops`, `seller-acme-integration`. All secrets are
+development-only.
 
 ## Repository layout
 
 ```
-services/inventory-service   Spring Boot 4 service: reservations, flash-sale gate, outbox, security
-infra/keycloak/              Souqly realm (roles, clients, service accounts, user profile)
-infra/wso2/                  API Manager config, public API definition, bootstrap and smoke test
+libs/platform                Shared: Keycloak security baseline, transactional outbox, Mongo transactions
+services/inventory-service   Reservations, flash-sale gate, stock ledger
+services/catalog-service     Categories (Form.io), listings, verified image uploads (MinIO)
+services/search-service      OpenSearch read model, search and autocomplete API
+infra/keycloak               Realm: roles, permissions, clients, service accounts
+infra/formio                 Category forms and their bootstrap
+infra/wso2                   Gateway config, public API definitions, bootstrap and smoke test
+infra/e2e                    Cross-service journey test
 load-tests/                  k6 scenarios
 docs/adr/                    Architecture decision records
-docs/roadmap.md              The remaining phases and the stack each one uses
-docker-compose.yml           Local platform
 ```
 
 ## Tech
 
-Java 21 (virtual threads) · Spring Boot 4.1 · Spring Security 7 (OAuth2 resource server) ·
-Keycloak 26 · WSO2 API Manager 4.5 · MongoDB 8 · Redis 7 · Apache Kafka 4 · Micrometer +
-Prometheus · Testcontainers · k6 · GitHub Actions.
-OpenSearch, MinIO, Form.io, Camunda and Neo4j join in later phases ([roadmap](docs/roadmap.md)).
+Java 21 (virtual threads) · Spring Boot 4.1 · Spring Security 7 · Keycloak 26 · WSO2 API Manager
+4.5 · MongoDB 8 · Redis 7 · Apache Kafka 4 · Form.io · MinIO (S3 API, AWS SDK v2) · OpenSearch 3 ·
+Micrometer + Prometheus · Testcontainers · k6 · GitHub Actions.
+Camunda and Neo4j join in later phases ([roadmap](docs/roadmap.md)).

@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: Souqly Catalog API
+  version: v1
+  description: |
+    Listing management for seller integrations: create and edit listings, upload images, publish.
+    Authenticate with a Keycloak access token; sellers can only change their own listings.
+    Updates need the listing's ETag in If-Match. Category administration is not exposed here.
+servers:
+  - url: https://localhost:8243/catalog/v1
+paths:
+  /categories:
+    get:
+      summary: List categories
+      operationId: listCategories
+      responses: {'200': {description: Categories}}
+  /categories/{slug}/form:
+    get:
+      summary: The category's Form.io form (listing attributes)
+      operationId: getCategoryForm
+      parameters: [{$ref: '#/components/parameters/Slug'}]
+      responses: {'200': {description: Form.io form definition}}
+  /products:
+    post:
+      summary: Create a listing (draft)
+      operationId: createProduct
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '201': {description: Created; ETag holds the version}
+        '422': {description: Attributes do not match the category form}
+  /products/{id}:
+    get:
+      summary: Read a listing
+      operationId: getProduct
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Listing}}
+    put:
+      summary: Replace a listing's details (If-Match required)
+      operationId: updateProduct
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - {name: If-Match, in: header, required: true, schema: {type: string}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses:
+        '200': {description: Updated}
+        '412': {description: Someone else changed the listing first}
+  /products/{id}/publish:
+    post:
+      summary: Make the listing live (needs a verified image)
+      operationId: publishProduct
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Live}}
+  /products/{id}/archive:
+    post:
+      summary: Take the listing down
+      operationId: archiveProduct
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      responses: {'200': {description: Archived}}
+  /products/{id}/images:
+    post:
+      summary: Get a signed URL to upload an image to
+      operationId: requestImageUpload
+      parameters: [{$ref: '#/components/parameters/Id'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: Upload URL and headers}}
+  /products/{id}/images/{imageId}/complete:
+    post:
+      summary: Verify and publish an uploaded image
+      operationId: completeImageUpload
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - {name: imageId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Image verified}
+        '422': {description: The file is not the declared image}
+components:
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: string}}
+    Slug: {name: slug, in: path, required: true, schema: {type: string}}

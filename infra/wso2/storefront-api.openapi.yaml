@@ -1,0 +1,36 @@
+openapi: 3.0.3
+info:
+  title: Souqly Storefront API
+  version: v1
+  description: |
+    Public product search for the storefront and partners. No token needed; the gateway limits
+    the API as a whole instead of per subscriber. Attribute filters are passed as
+    f.<attribute>=<value>, e.g. /search?q=phone&f.storage=256&inStock=true.
+servers:
+  - url: https://localhost:8243/storefront/v1
+paths:
+  /search:
+    get:
+      summary: Search live listings
+      operationId: search
+      x-auth-type: None
+      parameters:
+        - {name: q, in: query, schema: {type: string, maxLength: 200}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: brand, in: query, schema: {type: array, items: {type: string}}}
+        - {name: minPrice, in: query, schema: {type: number}}
+        - {name: maxPrice, in: query, schema: {type: number}}
+        - {name: inStock, in: query, schema: {type: boolean}}
+        - {name: sort, in: query, schema: {type: string, enum: [relevance, price_asc, price_desc, newest]}}
+        - {name: page, in: query, schema: {type: integer, minimum: 0}}
+        - {name: size, in: query, schema: {type: integer, minimum: 1, maximum: 50}}
+      responses: {'200': {description: Results with facets}}
+  /search/suggest:
+    get:
+      summary: Title suggestions as the shopper types
+      operationId: suggest
+      x-auth-type: None
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 2}}
+        - {name: lang, in: query, schema: {type: string, enum: [en, ar]}}
+      responses: {'200': {description: Suggestions}}

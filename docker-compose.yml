@@ -79,6 +79,59 @@ services:
       retries: 30
       start_period: 20s
 
+  formio:
+    # Form.io holds each category's listing schema (database "formio" in the shared MongoDB).
+    image: formio/formio:latest
+    ports: ["3001:3001"]
+    environment:
+      NODE_CONFIG: >-
+        {"mongo": "mongodb://mongo:27017/formio?replicaSet=rs0",
+         "mongoSecret": "formio-mongo-secret-dev", "jwt": {"secret": "formio-jwt-secret-dev", "expireTime": 240}}
+      ROOT_EMAIL: admin@souqly.dev
+      ROOT_PASSWORD: formio-admin-dev
+    healthcheck:
+      # The CE image answers 400 on /health; /access returns 200 once it is ready.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/access > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    depends_on:
+      mongo: {condition: service_healthy}
+
+  minio:
+    # MinIO stopped publishing community images in October 2025; this is the last Bitnami build.
+    # The catalog only speaks the S3 API, so any S3-compatible store can replace it.
+    image: bitnamilegacy/minio:latest
+    ports:
+      - "9000:9000" # S3 API, also where browsers upload images and read published ones
+      - "9001:9001" # console: http://localhost:9001 (souqly / souqly-minio-dev-secret)
+    environment:
+      MINIO_ROOT_USER: souqly
+      MINIO_ROOT_PASSWORD: souqly-minio-dev-secret
+    volumes: [minio-data:/bitnami/minio/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  opensearch:
+    image: opensearchproject/opensearch:3.2.0
+    ports: ["9200:9200"]
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+    volumes: [opensearch-data:/usr/share/opensearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
   apim:
     # WSO2 API Manager: the public API gateway plus publisher and developer portals.
     # Heavy (about 2 GB RAM, 2-3 minutes to start), so it has its own profile.
@@ -131,7 +184,50 @@ services:
       resources:
         limits: {memory: 768m}
 
+  catalog-service:
+    build: ./services/catalog-service
+    profiles: [app]
+    ports: ["8082:8082"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/souqly_catalog?replicaSet=rs0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
+      FORMIO_URL: http://formio:3001
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      IMAGES_PUBLIC_BASE_URL: http://localhost:9000/souqly-product-images
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    depends_on:
+      keycloak: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      formio: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {memory: 768m}
+
+  search-service:
+    build: ./services/search-service
+    profiles: [app]
+    ports: ["8083:8083"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OPENSEARCH_URL: http://opensearch:9200
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    depends_on:
+      kafka: {condition: service_healthy}
+      opensearch: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {memory: 512m}
+
 volumes:
   mongo-data:
   redis-data:
   kafka-data:
+  minio-data:
+  opensearch-data:

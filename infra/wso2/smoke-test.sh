@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# End-to-end checks through the WSO2 gateway, with real Keycloak tokens. Run after bootstrap.sh.
+# End-to-end checks through the WSO2 gateway (Inventory, Catalog and Storefront APIs), with real
+# Keycloak tokens. Run after bootstrap.sh.
 # Fails on the first check that does not hold.
 set -euo pipefail
 
 GATEWAY=${GATEWAY:-https://localhost:8243/inventory/v1}
+CATALOG=${CATALOG:-https://localhost:8243/catalog/v1}
+STOREFRONT=${STOREFRONT:-https://localhost:8243/storefront/v1}
 SERVICE=${SERVICE:-http://localhost:8081/api/v1}
 TOKEN_URL=${KEYCLOAK_URL:-http://localhost:8180}/realms/souqly/protocol/openid-connect/token
 
@@ -47,6 +50,21 @@ status -X POST "$SERVICE/stock/HOUSE-$SKU/restock" -H "Authorization: Bearer $OP
 check "seller cannot restock marketplace-owned stock" 403 \
   "$(status -X POST "$GATEWAY/stock/HOUSE-$SKU/restock" -H "Authorization: Bearer $ACME" "${JSON[@]}" -d '{"quantity": 1}')"
 check "service rejects calls that skip authentication" 401 "$(status "$SERVICE/stock/$SKU")"
+
+echo "Catalog API: seller integrations"
+check "no token is rejected at the gateway" 401 "$(status "$CATALOG/categories")"
+check "client without a catalog subscription is rejected" 403 \
+  "$(status "$CATALOG/categories" -H "Authorization: Bearer $ORDERS")"
+check "subscribed seller reads categories" 200 "$(status "$CATALOG/categories" -H "Authorization: Bearer $ACME")"
+
+echo "Storefront API: public search"
+for _ in $(seq 1 30); do
+  [[ $(status "$STOREFRONT/search?q=phone") == 200 ]] && break
+  sleep 2
+done
+check "search needs no token" 200 "$(status "$STOREFRONT/search?q=phone&f.storage=256&inStock=true")"
+check "suggestions need no token" 200 "$(status "$STOREFRONT/search/suggest?q=ph")"
+check "only reads are routed" 405 "$(status -X POST "$STOREFRONT/search")"
 
 echo "Gateway: Starter plan rate limit"
 throttled=0

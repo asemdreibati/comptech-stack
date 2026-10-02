@@ -20,10 +20,14 @@ TOKEN=$(curl -sS -D - -o /dev/null "$FORMIO_URL/admin/login" -H 'Content-Type: a
   | awk 'tolower($1) == "x-jwt-token:" {print $2}' | tr -d '\r')
 [[ -n $TOKEN ]] || { echo "Form.io login failed" >&2; exit 1; }
 
+existing=$(mktemp)
+trap 'rm -f "$existing"' EXIT
 for file in "$HERE"/forms/*.json; do
   path=$(jq -r .path "$file")
-  id=$(curl -sS "$FORMIO_URL/$path" -H "x-jwt-token: $TOKEN" | jq -r '._id // empty')
-  if [[ -n $id ]]; then
+  # A missing form is answered with plain-text "Not found", so go by the status code.
+  status=$(curl -sS -o "$existing" -w '%{http_code}' "$FORMIO_URL/$path" -H "x-jwt-token: $TOKEN")
+  if [[ $status == 200 ]]; then
+    id=$(jq -r ._id "$existing")
     curl -sS --fail -X PUT "$FORMIO_URL/form/$id" -H "x-jwt-token: $TOKEN" -H 'Content-Type: application/json' \
       -d @"$file" >/dev/null
     echo "updated  $path"

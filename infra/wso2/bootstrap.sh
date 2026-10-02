@@ -2,7 +2,8 @@
 # Configures WSO2 API Manager for Souqly through its REST APIs (no clicking in the consoles):
 #   1. registers the Souqly Keycloak realm as a key manager
 #   2. creates the Starter and Business subscription plans
-#   3. imports, deploys and publishes the Inventory API from its OpenAPI definition
+#   3. imports, deploys and publishes the Inventory, Catalog and Storefront APIs from their OpenAPI
+#      definitions (the Storefront search API is public and limited as a whole)
 #   4. creates the ACME seller application, maps its existing Keycloak client and subscribes it
 # Safe to run repeatedly: each step checks whether its result already exists.
 #
@@ -18,6 +19,8 @@ KEYCLOAK_INTERNAL_URL=${KEYCLOAK_INTERNAL_URL:-http://keycloak:8080}   # how the
 KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN:-admin}
 KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
 INVENTORY_BACKEND=${INVENTORY_BACKEND:-http://inventory-service:8081/api/v1}
+CATALOG_BACKEND=${CATALOG_BACKEND:-http://catalog-service:8082/api/v1}
+SEARCH_BACKEND=${SEARCH_BACKEND:-http://search-service:8083/api/v1}
 REALM=souqly
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -110,27 +113,43 @@ create_plan() { # name, description, requests per minute, burst per second, bill
 create_plan Starter "Free plan for seller integrations: 60 requests per minute, bursts up to 10 per second." 60 10 FREE
 create_plan Business "Paid plan for high-volume sellers: 6000 requests per minute." 6000 200 COMMERCIAL
 
-# --- Inventory API ---------------------------------------------------------------------------
-API_ID=$(apim "$APIM_URL/api/am/publisher/v4/apis?query=name:SouqlyInventory" | jq -r '.list[0].id // empty')
-if [[ -n $API_ID ]]; then
-  log "Inventory API already exists ($API_ID)"
-else
-  log "Importing the Inventory API from its OpenAPI definition"
-  PROPS=$(jq -cn --arg backend "$INVENTORY_BACKEND" '{
-    name: "SouqlyInventory", context: "/inventory", version: "v1", visibility: "PUBLIC",
-    policies: ["Starter", "Business"], keyManagers: ["Keycloak"],
-    securityScheme: ["oauth2", "oauth_basic_auth_api_key_mandatory"],
-    endpointConfig: {endpoint_type: "http",
-      production_endpoints: {url: $backend}, sandbox_endpoints: {url: $backend}}
-  }')
-  API_ID=$(apim "$APIM_URL/api/am/publisher/v4/apis/import-openapi" \
-    -F "file=@$HERE/inventory-api.openapi.yaml" -F "additionalProperties=$PROPS" | jq -r .id)
-  REVISION=$(apim_json "$APIM_URL/api/am/publisher/v4/apis/$API_ID/revisions" -d '{"description": "Initial release"}' | jq -r .id)
-  apim_json "$APIM_URL/api/am/publisher/v4/apis/$API_ID/deploy-revision?revisionId=$REVISION" \
+# --- APIs --------------------------------------------------------------------------------------
+# publish_api NAME CONTEXT SPEC BACKEND PLANS_JSON [API_THROTTLE]
+# Imports an API from its OpenAPI definition, deploys a revision to the gateway and publishes it.
+publish_api() {
+  local name=$1 context=$2 spec=$3 backend=$4 plans=$5 throttle=${6:-}
+  local id
+  id=$(apim "$APIM_URL/api/am/publisher/v4/apis?query=name:$name" | jq -r '.list[0].id // empty')
+  if [[ -n $id ]]; then
+    log "API $name already exists ($id)"
+    API_IDS[$name]=$id
+    return
+  fi
+  log "Importing API $name at $context"
+  local props
+  props=$(jq -cn --arg name "$name" --arg context "$context" --arg backend "$backend" --argjson plans "$plans" \
+    --arg throttle "$throttle" '{
+      name: $name, context: $context, version: "v1", visibility: "PUBLIC",
+      policies: $plans, keyManagers: ["Keycloak"],
+      securityScheme: ["oauth2", "oauth_basic_auth_api_key_mandatory"],
+      endpointConfig: {endpoint_type: "http", production_endpoints: {url: $backend}, sandbox_endpoints: {url: $backend}}
+    } + (if $throttle == "" then {} else {apiThrottlingPolicy: $throttle} end)')
+  id=$(apim "$APIM_URL/api/am/publisher/v4/apis/import-openapi" -F "file=@$HERE/$spec" -F "additionalProperties=$props" \
+    | jq -r .id)
+  local revision
+  revision=$(apim_json "$APIM_URL/api/am/publisher/v4/apis/$id/revisions" -d '{"description": "Initial release"}' | jq -r .id)
+  apim_json "$APIM_URL/api/am/publisher/v4/apis/$id/deploy-revision?revisionId=$revision" \
     -d '[{"name": "Default", "vhost": "localhost", "displayOnDevportal": true}]' >/dev/null
-  apim -X POST "$APIM_URL/api/am/publisher/v4/apis/change-lifecycle?apiId=$API_ID&action=Publish" >/dev/null
-  log "Published at https://localhost:8243/inventory/v1"
-fi
+  apim -X POST "$APIM_URL/api/am/publisher/v4/apis/change-lifecycle?apiId=$id&action=Publish" >/dev/null
+  log "Published at https://localhost:8243$context/v1"
+  API_IDS[$name]=$id
+}
+
+declare -A API_IDS
+publish_api SouqlyInventory /inventory inventory-api.openapi.yaml "$INVENTORY_BACKEND" '["Starter", "Business"]'
+publish_api SouqlyCatalog /catalog catalog-api.openapi.yaml "$CATALOG_BACKEND" '["Starter", "Business"]'
+# Public search: no tokens, so the limit applies to the API as a whole rather than per subscriber.
+publish_api SouqlyStorefront /storefront storefront-api.openapi.yaml "$SEARCH_BACKEND" '["Unlimited"]' 10KPerMin
 
 # --- Seller application ----------------------------------------------------------------------
 APP_ID=$(apim "$APIM_URL/api/am/devportal/v3/applications?query=acme-erp" | jq -r '.list[] | select(.name == "acme-erp") | .applicationId')
@@ -146,13 +165,16 @@ else
   apim_json "$APIM_URL/api/am/devportal/v3/applications/$APP_ID/map-keys" -d '{"consumerKey": "seller-acme-integration",
     "consumerSecret": "seller-acme-dev-secret", "keyType": "PRODUCTION", "keyManager": "Keycloak"}' >/dev/null
 fi
-if apim "$APIM_URL/api/am/devportal/v3/subscriptions?applicationId=$APP_ID" | jq -e --arg api "$API_ID" '.list[] | select(.apiId == $api)' >/dev/null; then
-  log "'acme-erp' already subscribed to the Inventory API"
-else
-  log "Subscribing 'acme-erp' to the Inventory API on the Starter plan"
-  apim_json "$APIM_URL/api/am/devportal/v3/subscriptions" \
-    -d "{\"applicationId\": \"$APP_ID\", \"apiId\": \"$API_ID\", \"throttlingPolicy\": \"Starter\"}" >/dev/null
-fi
+for api in SouqlyInventory SouqlyCatalog; do
+  if apim "$APIM_URL/api/am/devportal/v3/subscriptions?applicationId=$APP_ID" \
+      | jq -e --arg api "${API_IDS[$api]}" '.list[] | select(.apiId == $api)' >/dev/null; then
+    log "'acme-erp' already subscribed to $api"
+  else
+    log "Subscribing 'acme-erp' to $api on the Starter plan"
+    apim_json "$APIM_URL/api/am/devportal/v3/subscriptions" \
+      -d "{\"applicationId\": \"$APP_ID\", \"apiId\": \"${API_IDS[$api]}\", \"throttlingPolicy\": \"Starter\"}" >/dev/null
+  fi
+done
 
 log "Done. Try it:"
 cat <<EOF
@@ -160,4 +182,5 @@ cat <<EOF
     -d client_id=seller-acme-integration -d client_secret=seller-acme-dev-secret | jq -r .access_token)
   curl -k -X POST https://localhost:8243/inventory/v1/stock/ACME-001/restock \\
     -H "Authorization: Bearer \$TOKEN" -H 'Content-Type: application/json' -d '{"quantity": 10}'
+  curl -k 'https://localhost:8243/storefront/v1/search?q=phone'
 EOF
