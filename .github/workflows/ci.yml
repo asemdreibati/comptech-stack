@@ -22,7 +22,7 @@ jobs:
           java-version: '21'
           cache: maven
       # Unit tests plus Testcontainers integration tests against real MongoDB, Redis, Kafka,
-      # Keycloak, Form.io, MinIO and OpenSearch.
+      # Keycloak, Form.io, MinIO and OpenSearch (and WireMock for the payment provider).
       - run: ./mvnw -B verify
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -71,11 +71,11 @@ jobs:
           name: service-jars
           path: services
       - run: docker compose --profile app --profile gateway up -d --build --wait
-      - name: Marketplace journey (catalog, images, inventory, search)
+      - name: Marketplace journey (catalog, images, inventory, search, checkout)
         run: infra/e2e/marketplace-smoke.sh
       - name: Configure the API gateway
         run: infra/wso2/bootstrap.sh
       - name: Gateway checks
         run: infra/wso2/smoke-test.sh
       - if: failure()
-        run: docker compose logs --no-color --tail 150 apim inventory-service catalog-service search-service keycloak formio
+        run: docker compose logs --no-color --tail 150 apim inventory-service catalog-service search-service order-service psp keycloak formio

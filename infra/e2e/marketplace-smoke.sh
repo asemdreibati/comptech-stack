@@ -2,7 +2,7 @@
 # End-to-end journey across every service, with real tokens and real infrastructure:
 #   seller lists a phone (Form.io validates it) -> uploads a photo straight to MinIO -> publishes
 #   -> restocks it in inventory -> search finds it in English and Arabic, in stock
-#   -> the order service reserves everything -> search shows it sold out.
+#   -> a buyer checks out (declined card, retry, out of stock, success) -> search shows it sold out.
 # Run after: docker compose --profile app up -d --wait
 set -euo pipefail
 
@@ -10,6 +10,7 @@ KEYCLOAK=${KEYCLOAK_URL:-http://localhost:8180}/realms/souqly/protocol/openid-co
 CATALOG=${CATALOG_URL:-http://localhost:8082}/api/v1
 INVENTORY=${INVENTORY_URL:-http://localhost:8081}/api/v1
 SEARCH=${SEARCH_URL:-http://localhost:8083}/api/v1/search
+ORDERS=${ORDER_URL:-http://localhost:8084}/api/v1/orders
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -30,6 +31,19 @@ call() {
   local args=(-sS -o "$WORK/body" -w '%{http_code}' -X "$1" "$2" -H "Authorization: Bearer $3")
   [[ $# -ge 4 ]] && args+=(-H 'Content-Type: application/json' -d "$4")
   curl "${args[@]}"
+}
+# checkout KEY SKU QUANTITY PAYMENT_METHOD -> status code; the order lands in $WORK/body.
+# Retries while the order service has not yet seen the listing (its price book follows catalog events).
+checkout() {
+  local code=""
+  for _ in $(seq 1 30); do
+    code=$(curl -sS -o "$WORK/body" -w '%{http_code}' -X POST "$ORDERS" -H "Authorization: Bearer $BUYER" \
+      -H "Idempotency-Key: $1" -H 'Content-Type: application/json' \
+      -d "{\"items\": [{\"sku\": \"$2\", \"quantity\": $3}], \"paymentMethod\": \"$4\"}")
+    [[ $code == 422 && $(body .code) == PRODUCT_UNAVAILABLE ]] || break
+    sleep 1
+  done
+  echo "$code"
 }
 body() { jq -r "$1" "$WORK/body"; }
 # eventually DESCRIPTION EXPECTED JQ URL: polls a search until the expression matches (indexing is asynchronous)
@@ -53,7 +67,7 @@ for category in phones:category-phones:Phones:هواتف fashion:category-fashio
 done
 
 ACME=$(user_token seller-acme seller-password-dev)
-ORDERS=$(client_token order-service order-service-dev-secret)
+BUYER=$(user_token buyer buyer-password-dev)
 RUN=$(date +%s)
 SKU="ACME-E2E-$RUN"
 WORD="Nebula$RUN"
@@ -84,6 +98,8 @@ check "photo served publicly" 200 "$(curl -sS -o /dev/null -w '%{http_code}' "$(
 check "listing goes live" 200 "$(call POST "$CATALOG/products/$PRODUCT/publish" "$ACME")"
 
 echo "Seller restocks it in inventory"
+check "inventory already knows the seller from the catalog" acme \
+  "$(curl -sS "$INVENTORY/stock/$SKU" -H "Authorization: Bearer $ACME" | jq -r .sellerId)"
 check "5 units in stock" 200 "$(call POST "$INVENTORY/stock/$SKU/restock" "$ACME" '{"quantity": 5}')"
 
 echo "Buyers find it"
@@ -92,9 +108,23 @@ eventually "found by Arabic title spelled without hamza" "$SKU" '.items[0].sku' 
 eventually "shown in stock" true '.items[0].inStock' "$SEARCH?q=$WORD"
 eventually "storage facet offered" "256 GB" '[.facets.attributes[] | select(.name == "storage") | .values[0].label][0]' "$SEARCH?q=$WORD"
 
-echo "The order service sells out the stock"
-check "all 5 units reserved" 201 "$(call POST "$INVENTORY/reservations" "$ORDERS" \
-  "{\"orderId\": \"order-$RUN\", \"lines\": [{\"sku\": \"$SKU\", \"quantity\": 5}]}")"
+echo "A buyer checks out"
+available() { curl -sS "$INVENTORY/stock/$SKU" -H "Authorization: Bearer $ACME" | jq -r .available; }
+check "declined card: order created" 201 "$(checkout "declined-$RUN" "$SKU" 1 pm_card_chargeDeclined)"
+check "  ...and cancelled with the reason" "CANCELLED PAYMENT_DECLINED" "$(body '.status + " " + .failure.code')"
+check "  ...and its stock released" 5 "$(available)"
+check "order for 3 units" 201 "$(checkout "first-$RUN" "$SKU" 3 pm_card_visa)"
+check "  ...reserved, paid and confirmed" "PLACED STOCK_RESERVED PAID CONFIRMED" "$(body '[.history[].status] | join(" ")')"
+check "  ...at the catalog price" "7497" "$(body .total)"
+FIRST=$(body .id)
+check "retried checkout returns the same order" 200 "$(checkout "first-$RUN" "$SKU" 3 pm_card_visa)"
+check "  ...not a second one" "$FIRST" "$(body .id)"
+check "order for 5 more is rejected: only 2 left" "REJECTED OUT_OF_STOCK" \
+  "$(checkout "greedy-$RUN" "$SKU" 5 pm_card_visa >/dev/null; body '.status + " " + .failure.code')"
+check "order for the last 2 units" CONFIRMED "$(checkout "last-$RUN" "$SKU" 2 pm_card_visa >/dev/null; body .status)"
+check "buyer reads their order" 200 "$(call GET "$ORDERS/$FIRST" "$BUYER")"
+check "a seller's token is not addressed to the order service" 401 "$(call GET "$ORDERS/$FIRST" "$ACME")"
+check "stock is sold out" 0 "$(available)"
 eventually "search shows it sold out" false '.items[0].inStock' "$SEARCH?q=$WORD"
 eventually "in-stock filter hides it" 0 '.total' "$SEARCH?q=$WORD&inStock=true"
 

@@ -6,12 +6,14 @@ tests that prove it.
 
 [![CI](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml)
 
-> **Status:** phases 1–3 of 9 are done.
+> **Status:** phases 1–4 of 9 are done.
 > **Phase 1:** an inventory service that cannot oversell during flash sales.
 > **Phase 2:** Keycloak identity, per-object authorization, and a WSO2 API gateway.
 > **Phase 3:** a catalog whose category schemas live in Form.io, verified image uploads to MinIO,
 > and Arabic/English search on OpenSearch built purely from events.
-> Next: orders and payments ([roadmap](docs/roadmap.md)).
+> **Phase 4:** checkout as a saga that never double-charges, never loses stock, and finishes
+> what a crashed instance started.
+> Next: seller onboarding and returns with Camunda ([roadmap](docs/roadmap.md)).
 
 ## Architecture today
 
@@ -28,15 +30,19 @@ flowchart LR
     GW --> INV[inventory-service]
     GW --> CAT[catalog-service]
     GW --> SRCH[search-service]
-    ORD[order service<br/>planned] -->|JWT, internal| INV
+    WEB -->|buyer JWT, checkout| ORD[order-service<br/>checkout saga]
+    ORD -->|service token: reserve, confirm, release| INV
+    ORD -->|charge, refund<br/>Idempotency-Key| PSP[Payment provider]
     CAT -->|dry-run validation| FIO[Form.io<br/>category schemas]
     CAT --> MINIO
     INV --> R[(Redis)]
-    INV & CAT --> M[(MongoDB)]
+    INV & CAT & ORD --> M[(MongoDB)]
     INV -->|stock levels| K[[Kafka<br/>compacted topics]]
     CAT -->|listing snapshots| K
+    ORD -->|order events| K
+    K -->|listings| ORD & INV
     K --> SRCH --> OS[(OpenSearch)]
-    KC[(Keycloak)] -. JWKS .-> GW & INV & CAT
+    KC[(Keycloak)] -. JWKS .-> GW & INV & CAT & ORD
 ```
 
 Every service validates every token itself, publishes through a transactional outbox, and shares
@@ -96,12 +102,35 @@ See [ADR 0002](docs/adr/0002-identity-and-api-gateway.md).
 
 See [ADR 0003](docs/adr/0003-catalog-and-search.md).
 
+## Phase 4: checkout that is safe to crash and retry
+
+Checkout spans three systems with no shared transaction: orders, inventory and a payment
+provider. It runs as an orchestrated saga: reserve stock, charge, confirm the reservation. Each
+result is persisted before the next step.
+
+- **Every hop is idempotent.** Buyers send an `Idempotency-Key` (bound to a fingerprint of the
+  basket), reservations are keyed by order ID, and the PSP gets `order-<id>` and
+  `refund-order-<id>` keys. A retried checkout returns the same order, and a retried charge never
+  charges twice.
+- **Unknown is not failed.** A PSP timeout is retried with the same key until the PSP gives a
+  definite answer; it is never taken for a decline. Steps that keep failing go to
+  `NEEDS_ATTENTION` for a person, rather than being guessed.
+- **Compensation:** a declined card releases the stock; a reservation that expired during
+  payment triggers a refund.
+- **Crash recovery:** one instance advances an order under a lease. A sweeper on every instance
+  finishes orders whose instance died, from the persisted status.
+- **Prices from events:** checkout reads a local price book built from catalog events, so it
+  works while the catalog is down.
+- **Inventory now takes SKU ownership from catalog listings.**
+
+See [ADR 0004](docs/adr/0004-checkout-saga.md).
+
 ## How it is verified
 
 | Layer | What runs |
 |---|---|
-| Unit and integration tests | 62 tests on real MongoDB, Redis, Kafka, Keycloak, Form.io, MinIO and OpenSearch in Testcontainers, with no mocks: concurrency races, authorization matrix, tampered tokens, ETag conflicts, disguised uploads, out-of-order events, Arabic matching, dead-lettering |
-| Marketplace journey | `infra/e2e/marketplace-smoke.sh`: a seller lists, uploads, publishes and restocks a phone; search finds it in both languages and in stock; the order service sells it out; search shows it sold out |
+| Unit and integration tests | 80 tests on real MongoDB, Redis, Kafka, Keycloak, Form.io, MinIO and OpenSearch in Testcontainers (WireMock only for the payment provider and other services' HTTP APIs): concurrency races, authorization matrix, tampered tokens, ETag conflicts, disguised uploads, out-of-order events, Arabic matching, dead-lettering, PSP timeouts, compensation, crash recovery |
+| Marketplace journey | `infra/e2e/marketplace-smoke.sh`: a seller lists, uploads, publishes and restocks a phone; search finds it in both languages and in stock; a buyer is declined (stock returns), checks out, retries safely, is refused more than is left, and buys the rest; search shows it sold out |
 | Gateway | `infra/wso2/smoke-test.sh`: 15 checks across the Inventory, Catalog and Storefront APIs (auth, subscriptions, ownership, public search, rate limits) |
 | Load | Flash-sale test fails the build on a single oversold or undersold unit |
 | CI | All of the above on every push, the platform started from scratch |
@@ -117,7 +146,7 @@ the gateway.
 
 ```bash
 ./mvnw package -DskipTests
-docker compose --profile app up -d --build --wait   # all infrastructure + inventory, catalog, search
+docker compose --profile app up -d --build --wait   # all infrastructure + all services + a fake PSP
 infra/e2e/marketplace-smoke.sh                      # loads the category forms, then the full journey
 ```
 
@@ -131,7 +160,8 @@ curl -k 'https://localhost:8243/storefront/v1/search?q=phone&f.storage=256&inSto
 
 | What | Where |
 |---|---|
-| Inventory, catalog, search APIs | http://localhost:8081, :8082, :8083 (each has `/swagger-ui.html`) |
+| Inventory, catalog, search, order APIs | http://localhost:8081, :8082, :8083, :8084 (each has `/swagger-ui.html`) |
+| Fake payment provider | http://localhost:12111 ([infra/psp](infra/psp/README.md)) |
 | Gateway | https://localhost:8243/{inventory,catalog,storefront}/v1 · portals at https://localhost:9443/publisher, `/devportal` (admin/admin) |
 | Keycloak | http://localhost:8180 (admin/admin) |
 | Form.io | http://localhost:3001 (admin@souqly.dev / formio-admin-dev) |
@@ -149,9 +179,11 @@ libs/platform                Shared: Keycloak security baseline, transactional o
 services/inventory-service   Reservations, flash-sale gate, stock ledger
 services/catalog-service     Categories (Form.io), listings, verified image uploads (MinIO)
 services/search-service      OpenSearch read model, search and autocomplete API
+services/order-service       Checkout saga, price book, order history
 infra/keycloak               Realm: roles, permissions, clients, service accounts
 infra/formio                 Category forms and their bootstrap
 infra/wso2                   Gateway config, public API definitions, bootstrap and smoke test
+infra/psp                    Fake Stripe-style payment provider (WireMock)
 infra/e2e                    Cross-service journey test
 load-tests/                  k6 scenarios
 docs/adr/                    Architecture decision records
@@ -161,5 +193,5 @@ docs/adr/                    Architecture decision records
 
 Java 21 (virtual threads) · Spring Boot 4.1 · Spring Security 7 · Keycloak 26 · WSO2 API Manager
 4.5 · MongoDB 8 · Redis 7 · Apache Kafka 4 · Form.io · MinIO (S3 API, AWS SDK v2) · OpenSearch 3 ·
-Micrometer + Prometheus · Testcontainers · k6 · GitHub Actions.
+Micrometer + Prometheus · Testcontainers · WireMock · k6 · GitHub Actions.
 Camunda and Neo4j join in later phases ([roadmap](docs/roadmap.md)).

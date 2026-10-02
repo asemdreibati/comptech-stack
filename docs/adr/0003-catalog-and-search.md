@@ -179,8 +179,8 @@ transaction now also writes a stock-level event, and more containers compete for
   a dedicated account that can only create submissions on category forms. `/health` answers
   400, so health checks use `/access`.
 - **Two owners for a SKU.** A listing's seller is set by the catalog; stock ownership is set by
-  the first restock in inventory. Next step: inventory consumes `ProductChanged` and assigns
-  the owner from the listing.
+  the first restock in inventory. Resolved in ADR 0004: inventory now takes the owner from the
+  listing.
 - **Eventual consistency.** A change reaches search in about 1–2 seconds (outbox poll plus index
   refresh). Search is not the source of truth for prices or stock at checkout.
 - **Facet labels are English only.** Arabic labels need Form.io's translations.

@@ -16,7 +16,15 @@
     "realm": [
       {
         "name": "buyer",
-        "description": "Shops on the storefront. Has no direct access to back-office APIs."
+        "description": "Shops on the storefront: checks out and reads their own orders.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "order-service": [
+              "order:place"
+            ]
+          }
+        }
       },
       {
         "name": "seller",
@@ -51,6 +59,9 @@
               "category:manage",
               "product:write",
               "product:write-any"
+            ],
+            "order-service": [
+              "order:read-any"
             ]
           }
         }
@@ -92,6 +103,16 @@
           "name": "product:write-any",
           "description": "Edit any listing regardless of owning seller"
         }
+      ],
+      "order-service": [
+        {
+          "name": "order:place",
+          "description": "Check out and read one's own orders"
+        },
+        {
+          "name": "order:read-any",
+          "description": "Read any buyer's orders (support and operations)"
+        }
       ]
     }
   },
@@ -123,7 +144,7 @@
     {
       "clientId": "order-service",
       "name": "Order service",
-      "description": "Reserves stock during checkout (client credentials).",
+      "description": "Holds the order permissions (resource server) and reserves stock during checkout (client credentials).",
       "enabled": true,
       "publicClient": false,
       "secret": "order-service-dev-secret",
