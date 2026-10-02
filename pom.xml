@@ -22,6 +22,7 @@
         <module>libs/platform</module>
         <module>services/inventory-service</module>
         <module>services/catalog-service</module>
+        <module>services/search-service</module>
     </modules>
 
     <properties>

@@ -1,0 +1,89 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "max_result_window": 10000
+    },
+    "analysis": {
+      "filter": {
+        "english_possessive": {"type": "stemmer", "language": "possessive_english"},
+        "english_stop": {"type": "stop", "stopwords": "_english_"},
+        "english_stemmer": {"type": "stemmer", "language": "light_english"},
+        "arabic_stop": {"type": "stop", "stopwords": "_arabic_"},
+        "arabic_stemmer": {"type": "stemmer", "language": "arabic"},
+        "prefixes": {"type": "edge_ngram", "min_gram": 2, "max_gram": 20}
+      },
+      "normalizer": {
+        "lowercase_keyword": {"type": "custom", "filter": ["lowercase"]}
+      },
+      "analyzer": {
+        "english_text": {
+          "tokenizer": "standard",
+          "filter": ["english_possessive", "lowercase", "english_stop", "english_stemmer"]
+        },
+        "arabic_text": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "decimal_digit", "arabic_stop", "arabic_normalization", "arabic_stemmer"]
+        },
+        "autocomplete_index": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "arabic_normalization", "prefixes"]
+        },
+        "autocomplete_search": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "arabic_normalization"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "sku": {"type": "keyword"},
+      "productId": {"type": "keyword"},
+      "sellerId": {"type": "keyword"},
+      "category": {"type": "keyword"},
+      "title": {
+        "properties": {
+          "en": {
+            "type": "text", "analyzer": "english_text",
+            "fields": {"autocomplete": {"type": "text", "analyzer": "autocomplete_index", "search_analyzer": "autocomplete_search"}}
+          },
+          "ar": {
+            "type": "text", "analyzer": "arabic_text",
+            "fields": {"autocomplete": {"type": "text", "analyzer": "autocomplete_index", "search_analyzer": "autocomplete_search"}}
+          }
+        }
+      },
+      "description": {
+        "properties": {
+          "en": {"type": "text", "analyzer": "english_text"},
+          "ar": {"type": "text", "analyzer": "arabic_text"}
+        }
+      },
+      "brand": {
+        "type": "keyword", "normalizer": "lowercase_keyword",
+        "fields": {"text": {"type": "text", "analyzer": "english_text"}}
+      },
+      "brandLabel": {"type": "keyword", "index": false},
+      "price": {"type": "scaled_float", "scaling_factor": 100},
+      "currency": {"type": "keyword"},
+      "facets": {
+        "type": "nested",
+        "properties": {
+          "name": {"type": "keyword"},
+          "label": {"type": "keyword"},
+          "value": {"type": "keyword"},
+          "valueLabel": {"type": "keyword"}
+        }
+      },
+      "imageUrl": {"type": "keyword", "index": false},
+      "visible": {"type": "boolean"},
+      "inStock": {"type": "boolean"},
+      "catalogVersion": {"type": "long"},
+      "stockVersion": {"type": "long"},
+      "listedAt": {"type": "date"}
+    }
+  }
+}

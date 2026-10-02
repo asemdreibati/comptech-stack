@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: search-service
+  threads:
+    virtual:
+      enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/souqly}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/certs}
+          audiences: ${souqly.security.resource-client-id}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: search-indexer
+      # A new index is built by reading the compacted topics from the beginning.
+      auto-offset-reset: earliest
+      max-poll-records: 500
+    producer:
+      acks: all
+
+server:
+  port: ${SERVER_PORT:8083}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,opensearch
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+souqly:
+  security:
+    resource-client-id: search-service
+  search:
+    opensearch:
+      url: ${OPENSEARCH_URL:http://localhost:9200}
+      alias: products
+      initial-index: products-v1
+    topics:
+      products: catalog.products.v1
+      stock-levels: inventory.stock-levels.v1
