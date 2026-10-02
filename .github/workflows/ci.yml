@@ -22,7 +22,7 @@ jobs:
           java-version: '21'
           cache: maven
       # Unit tests plus Testcontainers integration tests against real MongoDB, Redis, Kafka,
-      # Keycloak, Form.io, MinIO and OpenSearch.
+      # Keycloak, Form.io, MinIO and OpenSearch (and WireMock for the payment provider).
       - run: ./mvnw -B verify
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -48,6 +48,10 @@ jobs:
           path: services
       # Only the inventory service and what it depends on.
       - run: docker compose --profile app up -d --build --wait inventory-service
+      # A fresh JVM is several times slower until the JIT has warmed up, so the first round only
+      # checks correctness (it must still sell exactly the stock); the timed rounds follow.
+      - name: Warm-up (correctness only)
+        run: docker run --rm -i --network host -e BUYERS=5000 -e VUS=100 -e P99_MS=60000 grafana/k6 run - < load-tests/flash-sale.js
       - name: Gate armed
         run: docker run --rm -i --network host -e GATE=true -e BUYERS=10000 -e VUS=200 -e P99_MS=2000 grafana/k6 run - < load-tests/flash-sale.js
       - name: Gate disarmed
@@ -67,11 +71,11 @@ jobs:
           name: service-jars
           path: services
       - run: docker compose --profile app --profile gateway up -d --build --wait
-      - name: Marketplace journey (catalog, images, inventory, search)
+      - name: Marketplace journey (catalog, images, inventory, search, checkout)
         run: infra/e2e/marketplace-smoke.sh
       - name: Configure the API gateway
         run: infra/wso2/bootstrap.sh
       - name: Gateway checks
         run: infra/wso2/smoke-test.sh
       - if: failure()
-        run: docker compose logs --no-color --tail 150 apim inventory-service catalog-service search-service keycloak formio
+        run: docker compose logs --no-color --tail 150 apim inventory-service catalog-service search-service order-service psp keycloak formio

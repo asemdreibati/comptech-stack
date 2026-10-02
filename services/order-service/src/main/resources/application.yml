@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: order-service
+  threads:
+    virtual:
+      enabled: true
+  mongodb:
+    uri: ${MONGODB_URI:mongodb://localhost:27017/souqly_orders?directConnection=true}
+  data:
+    mongodb:
+      representation:
+        big-decimal: decimal128
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/souqly}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/certs}
+          audiences: ${souqly.security.resource-client-id}
+      # This service's own identity, for calling inventory (client credentials).
+      client:
+        registration:
+          inventory:
+            provider: keycloak
+            client-id: order-service
+            client-secret: ${ORDER_SERVICE_CLIENT_SECRET:order-service-dev-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${OIDC_TOKEN_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/token}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: order
+      # The price book is built by reading the compacted listing topic from the beginning.
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+
+server:
+  port: ${SERVER_PORT:8084}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,mongo
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+souqly:
+  security:
+    resource-client-id: order-service
+  order:
+    topics:
+      orders: orders.order-events.v1
+      catalog-products: catalog.products.v1
+    inventory:
+      base-url: ${INVENTORY_URL:http://localhost:8081/api/v1}
+    payments:
+      base-url: ${PSP_URL:http://localhost:12111}
+      api-key: ${PSP_API_KEY:sk_test_souqly_dev}

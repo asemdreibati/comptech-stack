@@ -100,9 +100,10 @@ class KeycloakIT {
 
     @Test
     void tokenNotAddressedToThisServiceIsRejected() throws Exception {
-        // Buyers get no inventory roles, so Keycloak does not add this service to the audience.
+        // Buyers hold order roles but no inventory roles, so their tokens are addressed to the
+        // order service only. Keycloak adds a service to the audience only for its own roles.
         String buyer = userToken("buyer", "buyer-password-dev");
-        assertThat(claims(buyer)).doesNotContainKey("aud");
+        assertThat(claims(buyer).get("aud")).isEqualTo("order-service");
 
         restock("ANY", 1, buyer).andExpect(status().isUnauthorized());
     }
