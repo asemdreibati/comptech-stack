@@ -17,12 +17,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.souqly.inventory.config.InventoryProperties;
-import io.souqly.inventory.outbox.OutboxWriter;
+import io.souqly.platform.outbox.OutboxWriter;
 import io.souqly.inventory.stock.InsufficientStockException;
 import io.souqly.inventory.stock.StockItem;
-import io.souqly.inventory.support.MongoTransactions;
+import io.souqly.platform.mongo.MongoTransactions;
 import io.souqly.inventory.support.SkuLocks;
-import io.souqly.inventory.support.TransactionContentionException;
+import io.souqly.platform.mongo.TransactionContentionException;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -201,7 +201,8 @@ class ReservationCombiner {
 
         if (!accepted.isEmpty()) {
             mongo.insert(accepted, Reservation.class);
-            outbox.appendAll(accepted.stream().map(r -> ReservationEvent.messageFor(r, now)).toList());
+            String topic = properties.topics().reservationEvents();
+            outbox.appendAll(accepted.stream().map(r -> ReservationEvent.messageFor(topic, r, now)).toList());
         }
         return outcomes;
     }

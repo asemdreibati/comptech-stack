@@ -2,7 +2,7 @@ package io.souqly.inventory.api;
 
 import io.souqly.inventory.api.ApiModels.RestockRequest;
 import io.souqly.inventory.api.ApiModels.StockResponse;
-import io.souqly.inventory.security.Caller;
+import io.souqly.platform.security.Caller;
 import io.souqly.inventory.stock.StockService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;

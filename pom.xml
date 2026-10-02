@@ -19,6 +19,7 @@
     <description>Multi-seller e-commerce marketplace platform</description>
 
     <modules>
+        <module>libs/platform</module>
         <module>services/inventory-service</module>
     </modules>
 
@@ -29,6 +30,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.souqly</groupId>
+                <artifactId>platform</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

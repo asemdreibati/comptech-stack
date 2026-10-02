@@ -1,6 +1,5 @@
 package io.souqly.inventory.api;
 
-import java.net.URI;
 import java.util.List;
 
 import io.souqly.inventory.reservation.IdempotencyConflictException;
@@ -9,7 +8,8 @@ import io.souqly.inventory.reservation.ReservationStateException;
 import io.souqly.inventory.stock.InsufficientStockException;
 import io.souqly.inventory.stock.StockAccessDeniedException;
 import io.souqly.inventory.stock.StockNotFoundException;
-import io.souqly.inventory.support.TransactionContentionException;
+import io.souqly.platform.mongo.TransactionContentionException;
+import io.souqly.platform.web.Problems;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -28,8 +28,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  */
 @RestControllerAdvice
 class ApiExceptionHandler extends ResponseEntityExceptionHandler {
-
-    private static final String TYPE_BASE = "https://souqly.io/problems/";
 
     @ExceptionHandler
     ProblemDetail insufficientStock(InsufficientStockException ex) {
@@ -91,10 +89,6 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private static ProblemDetail problem(HttpStatus status, String code, String title, String detail) {
-        var problem = ProblemDetail.forStatusAndDetail(status, detail);
-        problem.setType(URI.create(TYPE_BASE + code.toLowerCase().replace('_', '-')));
-        problem.setTitle(title);
-        problem.setProperty("code", code);
-        return problem;
+        return Problems.of(status, code, title, detail);
     }
 }

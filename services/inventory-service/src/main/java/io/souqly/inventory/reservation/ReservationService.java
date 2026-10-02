@@ -10,10 +10,10 @@ import java.util.UUID;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.souqly.inventory.config.InventoryProperties;
 import io.souqly.inventory.flashsale.FlashSaleGate;
-import io.souqly.inventory.outbox.OutboxWriter;
+import io.souqly.platform.outbox.OutboxWriter;
 import io.souqly.inventory.stock.InsufficientStockException;
 import io.souqly.inventory.stock.StockItem;
-import io.souqly.inventory.support.MongoTransactions;
+import io.souqly.platform.mongo.MongoTransactions;
 import io.souqly.inventory.support.SkuLocks;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -254,7 +254,7 @@ public class ReservationService {
     }
 
     private void appendEvent(Reservation reservation, Instant now) {
-        outbox.append(ReservationEvent.messageFor(reservation, now));
+        outbox.append(ReservationEvent.messageFor(properties.topics().reservationEvents(), reservation, now));
     }
 
     private ReserveResult replay(Reservation existing, List<ReservationLine> lines) {

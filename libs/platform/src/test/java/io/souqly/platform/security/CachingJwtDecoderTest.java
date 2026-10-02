@@ -1,4 +1,4 @@
-package io.souqly.inventory.security;
+package io.souqly.platform.security;
 
 import java.time.Clock;
 import java.time.Duration;

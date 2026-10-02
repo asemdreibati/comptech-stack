@@ -1,4 +1,4 @@
-package io.souqly.inventory.outbox;
+package io.souqly.platform.outbox;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -8,7 +8,6 @@ import java.util.concurrent.TimeoutException;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.souqly.inventory.config.InventoryProperties;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,39 +19,38 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import static org.springframework.data.mongodb.core.query.Criteria.where;
 import static org.springframework.data.mongodb.core.query.Query.query;
 
 /**
- * Polls the outbox and publishes pending events to Kafka, keyed by aggregate ID so all events
- * for one reservation land on the same partition in order. Delivery is at least once: a crash
- * between the Kafka ack and marking the event published causes a resend.
+ * Polls the outbox and publishes pending events to their topics, keyed by aggregate ID so all
+ * events for one aggregate land on the same partition in order. Delivery is at least once: a
+ * crash between the Kafka ack and marking the event published causes a resend, so consumers
+ * deduplicate on the {@code eventId} header.
  */
-@Component
 public class OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
     private final MongoTemplate mongo;
     private final KafkaTemplate<String, String> kafka;
-    private final InventoryProperties.Outbox config;
+    private final OutboxProperties config;
     private final Clock clock;
     private final Counter published;
     private final Counter failures;
 
-    public OutboxRelay(MongoTemplate mongo, KafkaTemplate<String, String> kafka, InventoryProperties properties,
+    public OutboxRelay(MongoTemplate mongo, KafkaTemplate<String, String> kafka, OutboxProperties config,
             Clock clock, MeterRegistry meterRegistry) {
         this.mongo = mongo;
         this.kafka = kafka;
-        this.config = properties.outbox();
+        this.config = config;
         this.clock = clock;
-        this.published = Counter.builder("souqly.inventory.outbox.published").register(meterRegistry);
-        this.failures = Counter.builder("souqly.inventory.outbox.failures").register(meterRegistry);
+        this.published = Counter.builder("souqly.outbox.published").register(meterRegistry);
+        this.failures = Counter.builder("souqly.outbox.failures").register(meterRegistry);
     }
 
-    @Scheduled(fixedDelayString = "${souqly.inventory.outbox.poll-interval:PT0.5S}")
+    @Scheduled(fixedDelayString = "${souqly.outbox.poll-interval:PT0.5S}")
     public void publishPending() {
         for (int i = 0; i < config.batchSize(); i++) {
             OutboxEvent event = claimNext();
@@ -76,7 +74,7 @@ public class OutboxRelay {
     }
 
     private boolean publish(OutboxEvent event) {
-        var record = new ProducerRecord<String, String>(config.topic(), event.aggregateId(), event.payload());
+        var record = new ProducerRecord<String, String>(event.topic(), event.aggregateId(), event.payload());
         record.headers()
                 .add("eventId", event.id().getBytes(StandardCharsets.UTF_8))
                 .add("eventType", event.eventType().getBytes(StandardCharsets.UTF_8));

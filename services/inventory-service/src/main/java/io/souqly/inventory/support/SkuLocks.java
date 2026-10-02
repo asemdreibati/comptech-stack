@@ -8,6 +8,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.souqly.platform.mongo.TransactionContentionException;
 import io.micrometer.core.instrument.Timer;
 
 import org.springframework.stereotype.Component;
@@ -19,7 +20,7 @@ import org.springframework.stereotype.Component;
  * already written. When hundreds of buyers hit one SKU, optimistic retries alone keep
  * colliding until they give up. Queueing writers for the same SKU in-process removes those
  * collisions entirely on each instance, leaving only cross-instance conflicts for
- * {@link MongoTransactions} to retry. Lock striping bounds memory regardless of catalogue size.
+ * {@link io.souqly.platform.mongo.MongoTransactions} to retry. Lock striping bounds memory regardless of catalogue size.
  */
 @Component
 public class SkuLocks {

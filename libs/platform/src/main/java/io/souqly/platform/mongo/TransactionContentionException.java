@@ -1,4 +1,4 @@
-package io.souqly.inventory.support;
+package io.souqly.platform.mongo;
 
 /** Too many concurrent writers on the same stock; safe for the client to retry shortly. */
 public class TransactionContentionException extends RuntimeException {

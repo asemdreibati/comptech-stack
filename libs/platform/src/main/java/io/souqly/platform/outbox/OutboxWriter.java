@@ -1,4 +1,4 @@
-package io.souqly.inventory.outbox;
+package io.souqly.platform.outbox;
 
 import java.time.Instant;
 import java.util.List;
@@ -6,10 +6,8 @@ import java.util.List;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.stereotype.Component;
 
 /** Appends events to the outbox. Must be called inside the transaction that changes state. */
-@Component
 public class OutboxWriter {
 
     private final MongoTemplate mongo;
@@ -20,7 +18,10 @@ public class OutboxWriter {
         this.json = json;
     }
 
-    public record Message(String eventId, String aggregateType, String aggregateId, String eventType,
+    /**
+     * @param aggregateId the Kafka record key: all events of one aggregate share a partition
+     */
+    public record Message(String eventId, String topic, String aggregateType, String aggregateId, String eventType,
             Instant occurredAt, Object payload) {
     }
 
@@ -29,8 +30,11 @@ public class OutboxWriter {
     }
 
     public void appendAll(List<Message> messages) {
+        if (messages.isEmpty()) {
+            return;
+        }
         mongo.insert(messages.stream()
-                .map(m -> new OutboxEvent(m.eventId(), m.aggregateType(), m.aggregateId(), m.eventType(),
+                .map(m -> new OutboxEvent(m.eventId(), m.topic(), m.aggregateType(), m.aggregateId(), m.eventType(),
                         json.writeValueAsString(m.payload()), m.occurredAt(), null, null, 0))
                 .toList(), OutboxEvent.class);
     }

@@ -1,4 +1,4 @@
-package io.souqly.inventory.security;
+package io.souqly.platform.security;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -25,13 +25,13 @@ import org.springframework.security.oauth2.jwt.JwtValidationException;
  * revoked before they expire either way, so caching does not extend what a stolen token can do.
  * Failed validations are never cached.
  */
-class CachingJwtDecoder implements JwtDecoder {
+public class CachingJwtDecoder implements JwtDecoder {
 
     private final JwtDecoder delegate;
     private final Cache<String, Jwt> validated;
     private final Clock clock;
 
-    CachingJwtDecoder(JwtDecoder delegate, Duration maxAge, long maxEntries, Clock clock, MeterRegistry meterRegistry) {
+    public CachingJwtDecoder(JwtDecoder delegate, Duration maxAge, long maxEntries, Clock clock, MeterRegistry meterRegistry) {
         this.delegate = delegate;
         this.clock = clock;
         this.validated = Caffeine.newBuilder()

@@ -1,4 +1,4 @@
-package io.souqly.inventory.support;
+package io.souqly.platform.mongo;
 
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
@@ -9,7 +9,6 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 import org.springframework.data.mongodb.MongoTransactionManager;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -17,7 +16,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * transient (typically a write conflict on a hot stock document). Callers must keep the
  * work free of side effects outside MongoDB, because it may run more than once.
  */
-@Component
 public class MongoTransactions {
 
     static final int MAX_ATTEMPTS = 12;
@@ -29,7 +27,7 @@ public class MongoTransactions {
 
     public MongoTransactions(MongoTransactionManager transactionManager, MeterRegistry meterRegistry) {
         this.template = new TransactionTemplate(transactionManager);
-        this.retries = Counter.builder("souqly.inventory.tx.retries")
+        this.retries = Counter.builder("souqly.mongo.tx.retries")
                 .description("MongoDB transactions retried after a transient error")
                 .register(meterRegistry);
     }

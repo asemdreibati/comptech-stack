@@ -47,12 +47,13 @@ class ReservationExpiryIT {
         assertThat(stock.get(sku).available()).isZero();
         assertThat(flashSales.remainingTokens(sku)).contains(0L);
 
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                assertThat(reservations.get(reservation.id()).status()).isEqualTo(ReservationStatus.EXPIRED));
-
+        // Stock returns in the expiry transaction; gate tokens are refunded right after it commits.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(reservations.get(reservation.id()).status()).isEqualTo(ReservationStatus.EXPIRED);
+            assertThat(flashSales.remainingTokens(sku)).contains(2L);
+        });
         assertThat(stock.get(sku).available()).isEqualTo(2);
         assertThat(stock.get(sku).reserved()).isZero();
-        assertThat(flashSales.remainingTokens(sku)).contains(2L);
 
         assertThatExceptionOfType(ReservationStateException.class)
                 .isThrownBy(() -> reservations.confirm(reservation.id()))

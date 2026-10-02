@@ -3,8 +3,9 @@ package io.souqly.inventory.stock;
 import java.time.Clock;
 
 import io.souqly.inventory.flashsale.FlashSaleGate;
-import io.souqly.inventory.security.Caller;
+import io.souqly.inventory.security.Permissions;
 import io.souqly.inventory.stock.StockAccessDeniedException.Reason;
+import io.souqly.platform.security.Caller;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
@@ -48,7 +49,7 @@ public class StockService {
      */
     public StockItem restock(String sku, long quantity, Caller caller) {
         Criteria filter = where("_id").is(sku);
-        if (!caller.actsForAnySeller()) {
+        if (!caller.has(Permissions.STOCK_WRITE_ANY)) {
             if (caller.sellerId() == null) {
                 throw new StockAccessDeniedException(Reason.SELLER_IDENTITY_REQUIRED,
                         "Token has seller permissions but no seller_id claim");

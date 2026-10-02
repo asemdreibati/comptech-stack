@@ -62,5 +62,8 @@ souqly:
   inventory:
     reservation-ttl: PT10M
     expiry-sweep-interval: PT5S
-    outbox:
-      topic: inventory.reservation-events.v1
+    topics:
+      reservation-events: inventory.reservation-events.v1
+      stock-levels: inventory.stock-levels.v1
+  outbox:
+    poll-interval: PT0.5S

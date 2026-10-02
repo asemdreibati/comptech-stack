@@ -1,4 +1,4 @@
-package io.souqly.inventory.security;
+package io.souqly.platform.security;
 
 import java.io.IOException;
 import java.net.URI;
@@ -6,11 +6,11 @@ import java.net.URI;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import io.souqly.platform.web.Problems;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
@@ -23,13 +23,13 @@ import org.springframework.security.web.access.AccessDeniedHandler;
  * standard bearer-token handlers still run first so the RFC 6750 {@code WWW-Authenticate}
  * header is set. Token validation details are not echoed back to the caller.
  */
-class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
+public class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
 
     private final AuthenticationEntryPoint bearerEntryPoint = new BearerTokenAuthenticationEntryPoint();
     private final AccessDeniedHandler bearerAccessDenied = new BearerTokenAccessDeniedHandler();
     private final JsonMapper json;
 
-    ProblemDetailsSecurityHandler(JsonMapper json) {
+    public ProblemDetailsSecurityHandler(JsonMapper json) {
         this.json = json;
     }
 
@@ -51,9 +51,7 @@ class ProblemDetailsSecurityHandler implements AuthenticationEntryPoint, AccessD
 
     private void write(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String code,
             String title, String detail) throws IOException {
-        var problem = ProblemDetail.forStatusAndDetail(status, detail);
-        problem.setType(URI.create("https://souqly.io/problems/" + code.toLowerCase()));
-        problem.setTitle(title);
+        var problem = Problems.of(status, code, title, detail);
         problem.setInstance(URI.create(request.getRequestURI()));
         problem.setProperty("code", code);
         response.setStatus(status.value());

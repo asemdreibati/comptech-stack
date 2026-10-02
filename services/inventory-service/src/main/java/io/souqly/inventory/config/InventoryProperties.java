@@ -14,17 +14,15 @@ public record InventoryProperties(
         @DefaultValue("PT10M") Duration reservationTtl,
         @DefaultValue("PT5S") Duration expirySweepInterval,
         @DefaultValue("500") int expirySweepBatchSize,
-        @DefaultValue Outbox outbox,
+        @DefaultValue Topics topics,
         @DefaultValue FlashSale flashSale) {
 
-    public record Outbox(
-            @DefaultValue("inventory.reservation-events.v1") String topic,
-            @DefaultValue("6") int topicPartitions,
-            @DefaultValue("1") short topicReplicas,
-            @DefaultValue("PT0.5S") Duration pollInterval,
-            @DefaultValue("200") int batchSize,
-            @DefaultValue("PT30S") Duration lease,
-            @DefaultValue("PT10S") Duration sendTimeout) {
+    /** Kafka topics this service publishes to, through the platform outbox. */
+    public record Topics(
+            @DefaultValue("inventory.reservation-events.v1") String reservationEvents,
+            @DefaultValue("inventory.stock-levels.v1") String stockLevels,
+            @DefaultValue("6") int partitions,
+            @DefaultValue("1") short replicas) {
     }
 
     public record FlashSale(

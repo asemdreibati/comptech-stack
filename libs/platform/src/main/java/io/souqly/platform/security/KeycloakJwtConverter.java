@@ -1,4 +1,4 @@
-package io.souqly.inventory.security;
+package io.souqly.platform.security;
 
 import java.util.Collection;
 import java.util.List;
@@ -15,11 +15,11 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
  * Turns this service's Keycloak client roles ({@code resource_access.<client>.roles}) into
  * authorities. Realm roles and other services' client roles are deliberately ignored.
  */
-class KeycloakJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
+public class KeycloakJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     private final String resourceClientId;
 
-    KeycloakJwtConverter(String resourceClientId) {
+    public KeycloakJwtConverter(String resourceClientId) {
         this.resourceClientId = resourceClientId;
     }
 

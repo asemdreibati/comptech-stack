@@ -1,7 +1,5 @@
 package io.souqly.inventory.config;
 
-import java.time.Clock;
-
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -14,17 +12,18 @@ import org.springframework.kafka.config.TopicBuilder;
 class PlatformConfig {
 
     @Bean
-    Clock clock() {
-        return Clock.systemUTC();
+    NewTopic reservationEventsTopic(InventoryProperties properties) {
+        var topics = properties.topics();
+        return TopicBuilder.name(topics.reservationEvents()).partitions(topics.partitions())
+                .replicas(topics.replicas()).build();
     }
 
     @Bean
-    NewTopic reservationEventsTopic(InventoryProperties properties) {
-        var outbox = properties.outbox();
-        return TopicBuilder.name(outbox.topic())
-                .partitions(outbox.topicPartitions())
-                .replicas(outbox.topicReplicas())
-                .build();
+    NewTopic stockLevelsTopic(InventoryProperties properties) {
+        var topics = properties.topics();
+        // Compacted: consumers only ever need the latest level per SKU.
+        return TopicBuilder.name(topics.stockLevels()).partitions(topics.partitions())
+                .replicas(topics.replicas()).compact().build();
     }
 
     @Bean

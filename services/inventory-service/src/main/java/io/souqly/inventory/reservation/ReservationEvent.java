@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import io.souqly.inventory.outbox.OutboxWriter;
+import io.souqly.platform.outbox.OutboxWriter;
 
 /**
  * Published to Kafka for every reservation state change. Consumers deduplicate on
@@ -23,12 +23,12 @@ public record ReservationEvent(
     public static final String AGGREGATE_TYPE = "Reservation";
 
     /** An outbox message describing the reservation's current state. */
-    static OutboxWriter.Message messageFor(Reservation reservation, Instant occurredAt) {
+    static OutboxWriter.Message messageFor(String topic, Reservation reservation, Instant occurredAt) {
         String eventId = UUID.randomUUID().toString();
         String eventType = typeFor(reservation.status());
         var event = new ReservationEvent(eventId, eventType, occurredAt, reservation.id(), reservation.orderId(),
                 reservation.status(), reservation.lines(), reservation.expiresAt());
-        return new OutboxWriter.Message(eventId, AGGREGATE_TYPE, reservation.id(), eventType, occurredAt, event);
+        return new OutboxWriter.Message(eventId, topic, AGGREGATE_TYPE, reservation.id(), eventType, occurredAt, event);
     }
 
     static String typeFor(ReservationStatus status) {
