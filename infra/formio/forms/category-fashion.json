@@ -1,0 +1,40 @@
+{
+  "title": "Fashion: listing attributes",
+  "name": "categoryFashion",
+  "path": "category-fashion",
+  "type": "form",
+  "display": "form",
+  "tags": ["souqly-category"],
+  "components": [
+    {
+      "type": "select", "key": "size", "label": "Size", "input": true,
+      "dataSrc": "values",
+      "data": {"values": [
+        {"label": "XS", "value": "xs"}, {"label": "S", "value": "s"}, {"label": "M", "value": "m"},
+        {"label": "L", "value": "l"}, {"label": "XL", "value": "xl"}, {"label": "XXL", "value": "xxl"}
+      ]},
+      "validate": {"required": true, "onlyAvailableItems": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "select", "key": "color", "label": "Color", "input": true,
+      "dataSrc": "values",
+      "data": {"values": [
+        {"label": "Black", "value": "black"}, {"label": "White", "value": "white"},
+        {"label": "Beige", "value": "beige"}, {"label": "Navy", "value": "navy"}
+      ]},
+      "validate": {"required": true, "onlyAvailableItems": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "radio", "key": "fit", "label": "Fit", "input": true,
+      "values": [{"label": "Women", "value": "women"}, {"label": "Men", "value": "men"}, {"label": "Unisex", "value": "unisex"}],
+      "validate": {"required": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "textfield", "key": "material", "label": "Material", "input": true,
+      "validate": {"required": true, "maxLength": 60}
+    }
+  ]
+}

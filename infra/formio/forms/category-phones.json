@@ -1,0 +1,44 @@
+{
+  "title": "Phones: listing attributes",
+  "name": "categoryPhones",
+  "path": "category-phones",
+  "type": "form",
+  "display": "form",
+  "tags": ["souqly-category"],
+  "components": [
+    {
+      "type": "select", "key": "storage", "label": "Storage", "input": true,
+      "dataSrc": "values",
+      "data": {"values": [
+        {"label": "64 GB", "value": "64"}, {"label": "128 GB", "value": "128"},
+        {"label": "256 GB", "value": "256"}, {"label": "512 GB", "value": "512"}
+      ]},
+      "validate": {"required": true, "onlyAvailableItems": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "select", "key": "color", "label": "Color", "input": true,
+      "dataSrc": "values",
+      "data": {"values": [
+        {"label": "Black", "value": "black"}, {"label": "White", "value": "white"},
+        {"label": "Blue", "value": "blue"}, {"label": "Red", "value": "red"}, {"label": "Green", "value": "green"}
+      ]},
+      "validate": {"required": true, "onlyAvailableItems": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "radio", "key": "network", "label": "Network", "input": true,
+      "values": [{"label": "4G", "value": "4g"}, {"label": "5G", "value": "5g"}],
+      "validate": {"required": true},
+      "properties": {"facet": "true"}
+    },
+    {
+      "type": "number", "key": "screenInches", "label": "Screen size (inches)", "input": true,
+      "validate": {"required": true, "min": 3, "max": 8}
+    },
+    {
+      "type": "checkbox", "key": "dualSim", "label": "Dual SIM", "input": true,
+      "properties": {"facet": "true"}
+    }
+  ]
+}

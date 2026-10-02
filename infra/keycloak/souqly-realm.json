@@ -27,6 +27,9 @@
             "inventory-service": [
               "stock:read",
               "stock:write"
+            ],
+            "catalog-service": [
+              "product:write"
             ]
           }
         }
@@ -43,6 +46,11 @@
               "stock:write-any",
               "flash-sale:manage",
               "reservation:write"
+            ],
+            "catalog-service": [
+              "category:manage",
+              "product:write",
+              "product:write-any"
             ]
           }
         }
@@ -70,6 +78,20 @@
           "name": "reservation:write",
           "description": "Create, confirm and release reservations"
         }
+      ],
+      "catalog-service": [
+        {
+          "name": "category:manage",
+          "description": "Create categories and link them to Form.io forms"
+        },
+        {
+          "name": "product:write",
+          "description": "Create and edit listings (sellers: only their own)"
+        },
+        {
+          "name": "product:write-any",
+          "description": "Edit any listing regardless of owning seller"
+        }
       ]
     }
   },
@@ -81,6 +103,18 @@
       "enabled": true,
       "publicClient": false,
       "secret": "inventory-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "catalog-service",
+      "name": "Catalog service (resource server)",
+      "description": "Holds the catalog permissions. No login flows are enabled.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "catalog-service-dev-secret",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,

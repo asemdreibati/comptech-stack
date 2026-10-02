@@ -20,13 +20,20 @@ public record Caller(String subject, String sellerId, Set<String> permissions) {
         return permissions.contains(permission);
     }
 
+    /** Someone calling a public endpoint without a token. */
+    public static Caller anonymous() {
+        return new Caller(null, null, Set.of());
+    }
+
+    /** @param authentication the request's authentication, or {@code null} for anonymous calls */
     public static Caller from(Authentication authentication) {
+        if (authentication == null || !(authentication instanceof JwtAuthenticationToken)) {
+            return anonymous();
+        }
         Set<String> permissions = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .collect(Collectors.toUnmodifiableSet());
-        String sellerId = authentication instanceof JwtAuthenticationToken jwt
-                ? jwt.getToken().getClaimAsString("seller_id")
-                : null;
+        String sellerId = ((JwtAuthenticationToken) authentication).getToken().getClaimAsString("seller_id");
         return new Caller(authentication.getName(), sellerId, permissions);
     }
 }
