@@ -48,6 +48,10 @@ jobs:
           path: services
       # Only the inventory service and what it depends on.
       - run: docker compose --profile app up -d --build --wait inventory-service
+      # A fresh JVM is several times slower until the JIT has warmed up, so the first round only
+      # checks correctness (it must still sell exactly the stock); the timed rounds follow.
+      - name: Warm-up (correctness only)
+        run: docker run --rm -i --network host -e BUYERS=5000 -e VUS=100 -e P99_MS=60000 grafana/k6 run - < load-tests/flash-sale.js
       - name: Gate armed
         run: docker run --rm -i --network host -e GATE=true -e BUYERS=10000 -e VUS=200 -e P99_MS=2000 grafana/k6 run - < load-tests/flash-sale.js
       - name: Gate disarmed
