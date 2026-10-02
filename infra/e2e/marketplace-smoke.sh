@@ -46,11 +46,12 @@ checkout() {
   echo "$code"
 }
 body() { jq -r "$1" "$WORK/body"; }
-# eventually DESCRIPTION EXPECTED JQ URL: polls a search until the expression matches (indexing is asynchronous)
+# eventually DESCRIPTION EXPECTED JQ URL [CURL ARGS...]: polls until the expression matches, for
+# anything that arrives through events (search indexing, inventory learning a listing's seller)
 eventually() {
   local actual=""
   for _ in $(seq 1 60); do
-    actual=$(curl -sS "$4" | jq -r "$3")
+    actual=$(curl -sS "$4" "${@:5}" | jq -r "$3")
     [[ $actual == "$2" ]] && break
     sleep 1
   done
@@ -98,8 +99,8 @@ check "photo served publicly" 200 "$(curl -sS -o /dev/null -w '%{http_code}' "$(
 check "listing goes live" 200 "$(call POST "$CATALOG/products/$PRODUCT/publish" "$ACME")"
 
 echo "Seller restocks it in inventory"
-check "inventory already knows the seller from the catalog" acme \
-  "$(curl -sS "$INVENTORY/stock/$SKU" -H "Authorization: Bearer $ACME" | jq -r .sellerId)"
+eventually "inventory learns the seller from the catalog, before any restock" acme .sellerId \
+  "$INVENTORY/stock/$SKU" -H "Authorization: Bearer $ACME"
 check "5 units in stock" 200 "$(call POST "$INVENTORY/stock/$SKU/restock" "$ACME" '{"quantity": 5}')"
 
 echo "Buyers find it"
