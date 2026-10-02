@@ -134,8 +134,18 @@ publish_api() {
       securityScheme: ["oauth2", "oauth_basic_auth_api_key_mandatory"],
       endpointConfig: {endpoint_type: "http", production_endpoints: {url: $backend}, sandbox_endpoints: {url: $backend}}
     } + (if $throttle == "" then {} else {apiThrottlingPolicy: $throttle} end)')
-  id=$(apim "$APIM_URL/api/am/publisher/v4/apis/import-openapi" -F "file=@$HERE/$spec" -F "additionalProperties=$props" \
-    | jq -r .id)
+  # Plans and key managers created moments ago reach the publisher asynchronously, and until then
+  # it rejects an API that names them (400). Retry briefly; show the reason if it never succeeds.
+  local response=""
+  for attempt in $(seq 1 20); do
+    if response=$(apim "$APIM_URL/api/am/publisher/v4/apis/import-openapi" -F "file=@$HERE/$spec" \
+      -F "additionalProperties=$props" 2>&1); then
+      break
+    fi
+    [[ $attempt == 20 ]] && { echo "Importing $name failed: $response" >&2; exit 1; }
+    sleep 3
+  done
+  id=$(jq -r .id <<<"$response")
   local revision
   revision=$(apim_json "$APIM_URL/api/am/publisher/v4/apis/$id/revisions" -d '{"description": "Initial release"}' | jq -r .id)
   apim_json "$APIM_URL/api/am/publisher/v4/apis/$id/deploy-revision?revisionId=$revision" \
