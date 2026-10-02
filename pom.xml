@@ -23,12 +23,14 @@
         <module>services/inventory-service</module>
         <module>services/catalog-service</module>
         <module>services/search-service</module>
+        <module>services/order-service</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
         <springdoc.version>3.1.1</springdoc.version>
         <awssdk.version>2.55.10</awssdk.version>
+        <wiremock.version>3.13.2</wiremock.version>
     </properties>
 
     <dependencyManagement>
