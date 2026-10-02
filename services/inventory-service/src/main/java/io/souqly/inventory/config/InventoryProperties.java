@@ -17,10 +17,12 @@ public record InventoryProperties(
         @DefaultValue Topics topics,
         @DefaultValue FlashSale flashSale) {
 
-    /** Kafka topics this service publishes to, through the platform outbox. */
+    /** Kafka topics this service publishes to through the platform outbox, and reads from. */
     public record Topics(
             @DefaultValue("inventory.reservation-events.v1") String reservationEvents,
             @DefaultValue("inventory.stock-levels.v1") String stockLevels,
+            /* Consumed, not owned: listings decide who owns a SKU. */
+            @DefaultValue("catalog.products.v1") String catalogProducts,
             @DefaultValue("6") int partitions,
             @DefaultValue("1") short replicas) {
     }

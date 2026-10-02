@@ -24,6 +24,9 @@ spring:
           audiences: ${souqly.security.resource-client-id}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: inventory
+      auto-offset-reset: earliest
     producer:
       acks: all
       properties:
@@ -65,5 +68,6 @@ souqly:
     topics:
       reservation-events: inventory.reservation-events.v1
       stock-levels: inventory.stock-levels.v1
+      catalog-products: catalog.products.v1
   outbox:
     poll-interval: PT0.5S
