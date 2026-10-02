@@ -13,6 +13,7 @@ import io.souqly.inventory.flashsale.FlashSaleGate;
 import io.souqly.platform.outbox.OutboxWriter;
 import io.souqly.inventory.stock.InsufficientStockException;
 import io.souqly.inventory.stock.StockItem;
+import io.souqly.inventory.stock.StockLedger;
 import io.souqly.platform.mongo.MongoTransactions;
 import io.souqly.inventory.support.SkuLocks;
 
@@ -47,6 +48,7 @@ public class ReservationService {
     private final MongoTransactions transactions;
     private final SkuLocks locks;
     private final ReservationCombiner combiner;
+    private final StockLedger ledger;
     private final FlashSaleGate gate;
     private final OutboxWriter outbox;
     private final InventoryProperties properties;
@@ -54,12 +56,13 @@ public class ReservationService {
     private final MeterRegistry meterRegistry;
 
     public ReservationService(MongoTemplate mongo, MongoTransactions transactions, SkuLocks locks,
-            ReservationCombiner combiner, FlashSaleGate gate, OutboxWriter outbox, InventoryProperties properties,
-            Clock clock, MeterRegistry meterRegistry) {
+            ReservationCombiner combiner, StockLedger ledger, FlashSaleGate gate, OutboxWriter outbox,
+            InventoryProperties properties, Clock clock, MeterRegistry meterRegistry) {
         this.mongo = mongo;
         this.transactions = transactions;
         this.locks = locks;
         this.combiner = combiner;
+        this.ledger = ledger;
         this.gate = gate;
         this.outbox = outbox;
         this.properties = properties;
@@ -140,8 +143,7 @@ public class ReservationService {
                 throw ReservationStateException.illegalTransition(current, ReservationStatus.CONFIRMED);
             }
             for (ReservationLine line : updated.lines()) {
-                mongo.updateFirst(query(where("_id").is(line.sku())),
-                        new Update().inc("reserved", -line.quantity()).set("updatedAt", now), StockItem.class);
+                ledger.apply(line.sku(), 0, -line.quantity(), null, now);
             }
             appendEvent(updated, now);
             return updated;
@@ -218,12 +220,8 @@ public class ReservationService {
         // Inserted first so a duplicate order fails before any stock is touched.
         mongo.insert(reservation);
         for (ReservationLine line : lines) {
-            var result = mongo.updateFirst(
-                    query(where("_id").is(line.sku()).and("available").gte(line.quantity())),
-                    new Update().inc("available", -line.quantity()).inc("reserved", line.quantity())
-                            .set("updatedAt", now),
-                    StockItem.class);
-            if (result.getModifiedCount() == 0) {
+            var taken = ledger.apply(line.sku(), -line.quantity(), line.quantity(), (long) line.quantity(), now);
+            if (taken == null) {
                 var stock = mongo.findById(line.sku(), StockItem.class);
                 throw new InsufficientStockException(line.sku(), line.quantity(), stock != null ? stock.available() : 0);
             }
@@ -238,10 +236,7 @@ public class ReservationService {
             return null;
         }
         for (ReservationLine line : updated.lines()) {
-            mongo.updateFirst(query(where("_id").is(line.sku())),
-                    new Update().inc("available", line.quantity()).inc("reserved", -line.quantity())
-                            .set("updatedAt", now),
-                    StockItem.class);
+            ledger.apply(line.sku(), line.quantity(), -line.quantity(), null, now);
         }
         appendEvent(updated, now);
         return updated;

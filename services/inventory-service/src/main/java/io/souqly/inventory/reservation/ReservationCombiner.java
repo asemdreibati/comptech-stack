@@ -20,17 +20,14 @@ import io.souqly.inventory.config.InventoryProperties;
 import io.souqly.platform.outbox.OutboxWriter;
 import io.souqly.inventory.stock.InsufficientStockException;
 import io.souqly.inventory.stock.StockItem;
+import io.souqly.inventory.stock.StockLedger;
 import io.souqly.platform.mongo.MongoTransactions;
 import io.souqly.inventory.support.SkuLocks;
 import io.souqly.platform.mongo.TransactionContentionException;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Component;
-
-import static org.springframework.data.mongodb.core.query.Criteria.where;
-import static org.springframework.data.mongodb.core.query.Query.query;
 
 /**
  * Group commit for single-line reservations on hot SKUs (the flat-combining pattern).
@@ -58,12 +55,13 @@ class ReservationCombiner {
     private final MongoTransactions transactions;
     private final SkuLocks locks;
     private final OutboxWriter outbox;
+    private final StockLedger ledger;
     private final InventoryProperties properties;
     private final Clock clock;
     private final DistributionSummary batchSizes;
 
     ReservationCombiner(MongoTemplate mongo, MongoTransactions transactions, SkuLocks locks, OutboxWriter outbox,
-            InventoryProperties properties, Clock clock, MeterRegistry meterRegistry) {
+            StockLedger ledger, InventoryProperties properties, Clock clock, MeterRegistry meterRegistry) {
         for (int i = 0; i < queues.length; i++) {
             queues[i] = new ConcurrentLinkedQueue<>();
         }
@@ -71,6 +69,7 @@ class ReservationCombiner {
         this.transactions = transactions;
         this.locks = locks;
         this.outbox = outbox;
+        this.ledger = ledger;
         this.properties = properties;
         this.clock = clock;
         this.batchSizes = DistributionSummary.builder("souqly.inventory.reservation.batch_size")
@@ -189,10 +188,7 @@ class ReservationCombiner {
                 outcomes.put(request, reservation);
             }
             if (taken > 0) {
-                var result = mongo.updateFirst(query(where("_id").is(sku).and("available").gte(taken)),
-                        new Update().inc("available", -taken).inc("reserved", taken).set("updatedAt", now),
-                        StockItem.class);
-                if (result.getModifiedCount() != 1) {
+                if (ledger.apply(sku, -taken, taken, taken, now) == null) {
                     // Cannot happen inside a snapshot transaction; fail loudly rather than oversell.
                     throw new IllegalStateException("Stock for " + sku + " changed during the transaction");
                 }

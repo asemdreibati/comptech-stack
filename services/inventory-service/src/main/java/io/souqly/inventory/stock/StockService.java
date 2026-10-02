@@ -1,10 +1,14 @@
 package io.souqly.inventory.stock;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
 
 import io.souqly.inventory.flashsale.FlashSaleGate;
 import io.souqly.inventory.security.Permissions;
 import io.souqly.inventory.stock.StockAccessDeniedException.Reason;
+import io.souqly.inventory.support.SkuLocks;
+import io.souqly.platform.mongo.MongoTransactions;
 import io.souqly.platform.security.Caller;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -21,11 +25,18 @@ import static org.springframework.data.mongodb.core.query.Query.query;
 public class StockService {
 
     private final MongoTemplate mongo;
+    private final MongoTransactions transactions;
+    private final SkuLocks locks;
+    private final StockLedger ledger;
     private final FlashSaleGate gate;
     private final Clock clock;
 
-    public StockService(MongoTemplate mongo, FlashSaleGate gate, Clock clock) {
+    public StockService(MongoTemplate mongo, MongoTransactions transactions, SkuLocks locks, StockLedger ledger,
+            FlashSaleGate gate, Clock clock) {
         this.mongo = mongo;
+        this.transactions = transactions;
+        this.locks = locks;
+        this.ledger = ledger;
         this.gate = gate;
         this.clock = clock;
     }
@@ -56,14 +67,19 @@ public class StockService {
             }
             filter = filter.and("sellerId").is(caller.sellerId());
         }
-        var update = new Update()
-                .inc("available", quantity)
-                .setOnInsert("reserved", 0L)
-                .set("updatedAt", clock.instant());
+        var query = query(filter);
         StockItem item;
         try {
-            item = mongo.findAndModify(query(filter), update,
-                    FindAndModifyOptions.options().upsert(true).returnNew(true), StockItem.class);
+            // Same lock and transaction as reservations, so a restock never aborts a checkout batch.
+            item = locks.withLocks(List.of(sku), () -> transactions.execute(() -> {
+                Instant now = clock.instant();
+                var update = StockLedger.versioned(new Update().inc("available", quantity).setOnInsert("reserved", 0L),
+                        now);
+                var updated = mongo.findAndModify(query, update,
+                        FindAndModifyOptions.options().upsert(true).returnNew(true), StockItem.class);
+                ledger.record(updated, now);
+                return updated;
+            }));
         }
         catch (DuplicateKeyException ex) {
             throw new StockAccessDeniedException(Reason.NOT_SKU_OWNER,

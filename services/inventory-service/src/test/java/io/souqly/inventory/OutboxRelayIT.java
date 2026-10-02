@@ -80,6 +80,43 @@ class OutboxRelayIT {
         assertThat(created.get("lines").get(0).get("quantity").asInt()).isEqualTo(2);
     }
 
+    @Test
+    void publishesAbsoluteStockLevelsWithIncreasingVersions() {
+        String sku = "LVL-" + UUID.randomUUID();
+        stock.restock(sku, 5, TestCallers.OPERATIONS);
+        var reservation = reservations.reserve("order-" + UUID.randomUUID(), List.of(new ReservationLine(sku, 2)))
+                .reservation();
+        reservations.release(reservation.id());
+
+        List<JsonNode> levels = consume("inventory.stock-levels.v1", sku, 3).stream()
+                .map(record -> json.readTree(record.value()))
+                .toList();
+
+        assertThat(levels).extracting(l -> l.get("available").asLong()).containsExactly(5L, 3L, 5L);
+        assertThat(levels).extracting(l -> l.get("reserved").asLong()).containsExactly(0L, 2L, 0L);
+        assertThat(levels).extracting(l -> l.get("version").asLong()).containsExactly(1L, 2L, 3L);
+    }
+
+    private List<ConsumerRecord<String, String>> consume(String topic, String key, int expected) {
+        List<ConsumerRecord<String, String>> received = new ArrayList<>();
+        try (var consumer = new KafkaConsumer<String, String>(Map.of(
+                ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
+                ConsumerConfig.GROUP_ID_CONFIG, "test-" + UUID.randomUUID(),
+                ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"),
+                new StringDeserializer(), new StringDeserializer())) {
+            consumer.subscribe(List.of(topic));
+            await().atMost(Duration.ofSeconds(30)).until(() -> {
+                consumer.poll(Duration.ofMillis(200)).forEach(record -> {
+                    if (key.equals(record.key())) {
+                        received.add(record);
+                    }
+                });
+                return received.size() >= expected;
+            });
+        }
+        return received;
+    }
+
     private static String header(ConsumerRecord<String, String> record, String name) {
         return new String(record.headers().lastHeader(name).value(), StandardCharsets.UTF_8);
     }
