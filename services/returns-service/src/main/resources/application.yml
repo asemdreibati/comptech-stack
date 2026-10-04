@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: returns-service
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/souqly_returns}
+    username: ${DATABASE_USER:souqly}
+    password: ${DATABASE_PASSWORD:souqly-postgres-dev-secret}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/souqly}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/certs}
+          audiences: ${souqly.security.resource-client-id}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: returns
+      # The order replica is built by reading the order topic from the beginning.
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+
+camunda:
+  bpm:
+    # Engine tables are created on first start here; production applies the engine's SQL scripts
+    # through migrations instead.
+    database:
+      schema-update: true
+    job-execution:
+      enabled: true
+    generic-properties:
+      properties:
+        history-time-to-live: P180D
+        # Asynchronous steps (publishing, refunds) retry before raising an incident.
+        failed-job-retry-time-cycle: ${JOB_RETRY_CYCLE:R5/PT30S}
+        enforce-history-time-to-live: true
+    metrics:
+      enabled: false
+
+server:
+  port: ${SERVER_PORT:8086}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+souqly:
+  security:
+    resource-client-id: returns-service
+  returns:
+    # How long after confirmation an order can be returned.
+    window: ${RETURN_WINDOW:P14D}
+    seller-sla: ${SELLER_SLA:P2D}
+    dispute-window: ${DISPUTE_WINDOW:P7D}
+    shipping-window: ${SHIPPING_WINDOW:P14D}
+    topics:
+      returns: returns.return-requests.v1
+      orders: orders.order-events.v1
+    payments:
+      base-url: ${PSP_URL:http://localhost:12111}
+      api-key: ${PSP_API_KEY:sk_test_souqly_dev}

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="Definitions_ReturnPolicy" name="Return policy" namespace="https://souqly.io/dmn">
+
+  <decision id="return-policy" name="Who decides a return" camunda:historyTimeToLive="P180D">
+    <description>First match wins. Small refunds cost less to accept than to review, and wrong or
+      damaged items are approved without asking the seller up to a limit. Thresholds are set per
+      currency; currencies without one always go to the seller.</description>
+    <decisionTable id="DecisionTable_ReturnPolicy" hitPolicy="FIRST">
+      <input id="Input_Reason" label="Reason">
+        <inputExpression id="InputExpression_Reason" typeRef="string"><text>reason</text></inputExpression>
+      </input>
+      <input id="Input_Amount" label="Refund amount">
+        <inputExpression id="InputExpression_Amount" typeRef="double"><text>refundAmount</text></inputExpression>
+      </input>
+      <input id="Input_Currency" label="Currency">
+        <inputExpression id="InputExpression_Currency" typeRef="string"><text>currency</text></inputExpression>
+      </input>
+      <output id="Output_Route" label="Route" name="route" typeRef="string" />
+
+      <rule id="Rule_SmallRefund">
+        <description>Up to 100 AED or SAR</description>
+        <inputEntry id="Entry_SmallRefund_Reason"><text></text></inputEntry>
+        <inputEntry id="Entry_SmallRefund_Amount"><text>&lt;= 100</text></inputEntry>
+        <inputEntry id="Entry_SmallRefund_Currency"><text>"AED","SAR"</text></inputEntry>
+        <outputEntry id="Output_SmallRefund"><text>"AUTO_APPROVE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_SellerFault">
+        <description>Wrong or damaged item, up to 500 AED or SAR</description>
+        <inputEntry id="Entry_SellerFault_Reason"><text>"DAMAGED","WRONG_ITEM"</text></inputEntry>
+        <inputEntry id="Entry_SellerFault_Amount"><text>&lt;= 500</text></inputEntry>
+        <inputEntry id="Entry_SellerFault_Currency"><text>"AED","SAR"</text></inputEntry>
+        <outputEntry id="Output_SellerFault"><text>"AUTO_APPROVE"</text></outputEntry>
+      </rule>
+      <rule id="Rule_Default">
+        <inputEntry id="Entry_Default_Reason"><text></text></inputEntry>
+        <inputEntry id="Entry_Default_Amount"><text></text></inputEntry>
+        <inputEntry id="Entry_Default_Currency"><text></text></inputEntry>
+        <outputEntry id="Output_Default"><text>"SELLER_DECIDES"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
