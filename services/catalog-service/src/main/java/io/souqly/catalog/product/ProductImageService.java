@@ -5,11 +5,12 @@ import java.util.UUID;
 
 import io.souqly.catalog.config.CatalogProperties;
 import io.souqly.catalog.image.ImageStorage;
-import io.souqly.catalog.image.ImageStorage.PresignedUpload;
-import io.souqly.catalog.image.ImageTypes;
 import io.souqly.catalog.product.ProductExceptions.InvalidImageException;
 import io.souqly.catalog.product.ProductExceptions.ProductStateException;
 import io.souqly.platform.security.Caller;
+import io.souqly.platform.storage.FileTypes;
+import io.souqly.platform.storage.ObjectStorage.PresignedRequest;
+import io.souqly.platform.storage.ObjectStorage.StoredObject;
 
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
@@ -42,7 +43,7 @@ public class ProductImageService {
         this.clock = clock;
     }
 
-    public record UploadTicket(ProductImage image, PresignedUpload upload) {
+    public record UploadTicket(ProductImage image, PresignedRequest upload) {
     }
 
     public UploadTicket requestUpload(String productId, String contentType, long sizeBytes, Caller caller) {
@@ -98,7 +99,7 @@ public class ProductImageService {
             throw new InvalidImageException(problem);
         }
 
-        String publicKey = "public/" + productId + "/" + imageId + "." + ImageTypes.extension(image.contentType());
+        String publicKey = "public/" + productId + "/" + imageId + "." + FileTypes.extension(image.contentType());
         storage.publish(uploadKey, publicKey, image.contentType());
         Product updated = products.apply(pending, new Update()
                 .set("images.$.status", ProductImage.Status.READY)
@@ -107,11 +108,12 @@ public class ProductImageService {
         return updated != null ? updated : products.load(productId);
     }
 
-    private String verify(ProductImage image, String uploadKey, ImageStorage.StoredObject stored) {
+    private String verify(ProductImage image, String uploadKey, StoredObject stored) {
         if (stored.size() != image.sizeBytes()) {
             return "Uploaded file is " + stored.size() + " bytes but " + image.sizeBytes() + " were declared";
         }
-        var actual = ImageTypes.detect(storage.head(uploadKey, ImageTypes.SNIFF_BYTES));
+        var actual = FileTypes.detect(storage.head(uploadKey, FileTypes.SNIFF_BYTES))
+                .filter(config.contentTypes()::contains);
         if (actual.isEmpty()) {
             return "Uploaded file is not a JPEG, PNG or WebP image";
         }

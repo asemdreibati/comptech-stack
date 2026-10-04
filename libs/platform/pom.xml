@@ -48,6 +48,13 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Optional: presigned uploads for services that use object storage. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

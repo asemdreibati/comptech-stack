@@ -1,22 +1,24 @@
-package io.souqly.catalog.image;
+package io.souqly.platform.storage;
 
 import java.util.Arrays;
 import java.util.Optional;
 
 /**
- * Recognises image formats from their first bytes. The declared content type is only a claim;
- * this is what the file actually is.
+ * Recognises file formats from their first bytes. A declared content type is only a claim; this
+ * is what the file actually is.
  */
-public final class ImageTypes {
+public final class FileTypes {
 
+    /** Enough leading bytes to recognise every supported format. */
     public static final int SNIFF_BYTES = 12;
 
     private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
     private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
     private static final byte[] RIFF = {'R', 'I', 'F', 'F'};
     private static final byte[] WEBP = {'W', 'E', 'B', 'P'};
+    private static final byte[] PDF = {'%', 'P', 'D', 'F', '-'};
 
-    private ImageTypes() {
+    private FileTypes() {
     }
 
     public static Optional<String> detect(byte[] head) {
@@ -29,6 +31,9 @@ public final class ImageTypes {
         if (startsWith(head, 0, RIFF) && startsWith(head, 8, WEBP)) {
             return Optional.of("image/webp");
         }
+        if (startsWith(head, 0, PDF)) {
+            return Optional.of("application/pdf");
+        }
         return Optional.empty();
     }
 
@@ -37,7 +42,8 @@ public final class ImageTypes {
             case "image/jpeg" -> "jpg";
             case "image/png" -> "png";
             case "image/webp" -> "webp";
-            default -> throw new IllegalArgumentException("Unsupported image type " + contentType);
+            case "application/pdf" -> "pdf";
+            default -> throw new IllegalArgumentException("Unsupported file type " + contentType);
         };
     }
 

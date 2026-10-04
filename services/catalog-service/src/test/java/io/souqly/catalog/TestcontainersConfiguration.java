@@ -85,9 +85,9 @@ public class TestcontainersConfiguration {
         importForms(formioUrl);
         String s3 = "http://" + minio.getHost() + ":" + minio.getMappedPort(9000);
         return registry -> {
-            registry.add("souqly.catalog.formio.base-url", () -> formioUrl);
-            registry.add("souqly.catalog.formio.email", () -> FORMIO_EMAIL);
-            registry.add("souqly.catalog.formio.password", () -> FORMIO_PASSWORD);
+            registry.add("souqly.formio.base-url", () -> formioUrl);
+            registry.add("souqly.formio.email", () -> FORMIO_EMAIL);
+            registry.add("souqly.formio.password", () -> FORMIO_PASSWORD);
             registry.add("souqly.catalog.storage.endpoint", () -> s3);
             registry.add("souqly.catalog.storage.public-endpoint", () -> s3);
             registry.add("souqly.catalog.storage.public-base-url", () -> s3 + "/souqly-product-images");

@@ -1,4 +1,4 @@
-package io.souqly.catalog.formio;
+package io.souqly.platform.formio;
 
 public class FormNotFoundException extends RuntimeException {
 

@@ -1,4 +1,4 @@
-package io.souqly.catalog.formio;
+package io.souqly.platform.formio;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -21,15 +21,20 @@ public record FormDefinition(String path, JsonNode raw, List<FormField> fields) 
         for (JsonNode component : components) {
             if (component.path("input").asBoolean(false) && component.hasNonNull("key")) {
                 fields.add(new FormField(component.get("key").asString(), component.path("label").asString(""),
-                        component.path("type").asString(""),
-                        "true".equals(component.path("properties").path("facet").asString("")),
-                        allowedValues(component)));
+                        component.path("type").asString(""), properties(component), allowedValues(component)));
             }
             collect(component.path("components"), fields);
             for (JsonNode column : component.path("columns")) {
                 collect(column.path("components"), fields);
             }
         }
+    }
+
+    private static Map<String, String> properties(JsonNode component) {
+        Map<String, String> properties = new LinkedHashMap<>();
+        component.path("properties").properties()
+                .forEach(property -> properties.put(property.getKey(), property.getValue().asString("")));
+        return Map.copyOf(properties);
     }
 
     private static Map<String, String> allowedValues(JsonNode component) {

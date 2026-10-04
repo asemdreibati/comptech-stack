@@ -11,7 +11,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record CatalogProperties(
         @DefaultValue Topics topics,
         Storage storage,
-        Formio formio,
         @DefaultValue Images images) {
 
     public record Topics(
@@ -35,15 +34,6 @@ public record CatalogProperties(
             String accessKey,
             String secretKey,
             @DefaultValue("souqly-product-images") String bucket) {
-    }
-
-    /** Form.io holds each category's attribute schema. */
-    public record Formio(
-            URI baseUrl,
-            String email,
-            String password,
-            @DefaultValue("PT5M") Duration schemaCacheTtl,
-            @DefaultValue("PT3S") Duration timeout) {
     }
 
     public record Images(

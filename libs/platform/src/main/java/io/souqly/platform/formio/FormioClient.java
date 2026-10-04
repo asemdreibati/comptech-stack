@@ -1,4 +1,4 @@
-package io.souqly.catalog.formio;
+package io.souqly.platform.formio;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -10,26 +10,23 @@ import java.util.function.Function;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import io.souqly.catalog.config.CatalogProperties;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 /**
- * Talks to the Form.io server that holds each category's attribute schema.
+ * Talks to the Form.io server that holds the platform's business forms.
  *
  * <p>Validation uses Form.io's own engine ({@code POST /{form}/submission?dryrun=1}): the same rules
- * the seller portal renders in the browser are enforced on the server, and nothing is stored in
+ * the portal renders in the browser are enforced on the server, and nothing is stored in
  * Form.io. Its response is the cleaned submission, with fields the form does not define removed.
- * Form definitions are cached briefly, since every listing write needs one.
+ * Form definitions are cached briefly, since every validated write needs one.
  */
-@Component
 public class FormioClient {
 
     /** Form.io answers 440 when its JWT has expired. */
@@ -37,16 +34,16 @@ public class FormioClient {
 
     private final RestClient http;
     private final JsonMapper json;
-    private final CatalogProperties.Formio config;
+    private final FormioProperties config;
     private final Cache<String, FormDefinition> forms;
     private volatile String token;
 
-    public FormioClient(RestClient.Builder builder, JsonMapper json, CatalogProperties properties) {
-        this.config = properties.formio();
+    public FormioClient(RestClient.Builder builder, JsonMapper json, FormioProperties config) {
+        this.config = config;
         var requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(config.timeout()).build());
         requestFactory.setReadTimeout(config.timeout());
-        this.http = builder.baseUrl(config.baseUrl().toString()).requestFactory(requestFactory).build();
+        this.http = builder.clone().baseUrl(config.baseUrl().toString()).requestFactory(requestFactory).build();
         this.json = json;
         this.forms = Caffeine.newBuilder().expireAfterWrite(config.schemaCacheTtl()).maximumSize(500).build();
     }
@@ -70,13 +67,13 @@ public class FormioClient {
     }
 
     /**
-     * Validates attributes against a form without storing anything.
+     * Validates a submission against a form without storing anything.
      *
      * @return the cleaned data: only the form's fields, with Form.io's type coercion applied
-     * @throws AttributeValidationException listing the failing fields
+     * @throws FormValidationException listing the failing fields
      */
-    public Map<String, Object> validate(String path, Map<String, Object> attributes) {
-        String body = json.writeValueAsString(Map.of("data", attributes));
+    public Map<String, Object> validate(String path, Map<String, Object> submission) {
+        String body = json.writeValueAsString(Map.of("data", submission));
         return authenticated(jwt -> http.post().uri("/{path}/submission?dryrun=1", path)
                 .header("x-jwt-token", jwt)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +81,7 @@ public class FormioClient {
                 .exchange((request, response) -> {
                     HttpStatusCode status = response.getStatusCode();
                     if (status.value() == 400) {
-                        throw new AttributeValidationException(fieldErrors(json.readTree(response.getBody())));
+                        throw new FormValidationException(fieldErrors(json.readTree(response.getBody())));
                     }
                     if (status.value() == 404) {
                         throw new FormNotFoundException(path);
@@ -105,7 +102,7 @@ public class FormioClient {
             errors.add(new FieldError(String.join(".", path), detail.path("message").asString()));
         }
         if (errors.isEmpty()) {
-            errors.add(new FieldError("", error.path("message").asString("Invalid attributes")));
+            errors.add(new FieldError("", error.path("message").asString("Invalid submission")));
         }
         return errors;
     }
@@ -122,7 +119,7 @@ public class FormioClient {
             }
         }
         catch (ResourceAccessException ex) {
-            throw new SchemaUnavailableException("Form.io is unreachable", ex);
+            throw new FormioUnavailableException("Form.io is unreachable", ex);
         }
     }
 
@@ -146,7 +143,7 @@ public class FormioClient {
                 .exchange((request, response) -> {
                     String jwt = response.getHeaders().getFirst("x-jwt-token");
                     if (!response.getStatusCode().is2xxSuccessful() || jwt == null) {
-                        throw new SchemaUnavailableException(
+                        throw new FormioUnavailableException(
                                 "Form.io login failed with status " + response.getStatusCode().value(), null);
                     }
                     return jwt;
@@ -158,7 +155,7 @@ public class FormioClient {
             throw new SessionExpiredException();
         }
         if (!status.is2xxSuccessful()) {
-            throw new SchemaUnavailableException("Form.io failed to " + action + ": status " + status.value(), null);
+            throw new FormioUnavailableException("Form.io failed to " + action + ": status " + status.value(), null);
         }
     }
 

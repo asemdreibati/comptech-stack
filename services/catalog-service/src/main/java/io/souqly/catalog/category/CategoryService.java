@@ -3,8 +3,8 @@ package io.souqly.catalog.category;
 import java.time.Clock;
 import java.util.List;
 
-import io.souqly.catalog.formio.FormDefinition;
-import io.souqly.catalog.formio.FormioClient;
+import io.souqly.platform.formio.FormDefinition;
+import io.souqly.platform.formio.FormioClient;
 import io.souqly.catalog.i18n.LocalizedText;
 
 import org.springframework.data.domain.Sort;
