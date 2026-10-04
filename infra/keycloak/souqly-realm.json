@@ -16,12 +16,15 @@
     "realm": [
       {
         "name": "buyer",
-        "description": "Shops on the storefront: checks out and reads their own orders.",
+        "description": "Shops on the storefront: checks out, reads their own orders, and can apply to become a seller.",
         "composite": true,
         "composites": {
           "client": {
             "order-service": [
               "order:place"
+            ],
+            "seller-service": [
+              "application:submit"
             ]
           }
         }
@@ -62,6 +65,22 @@
             ],
             "order-service": [
               "order:read-any"
+            ],
+            "seller-service": [
+              "application:review",
+              "application:review-senior"
+            ]
+          }
+        }
+      },
+      {
+        "name": "compliance",
+        "description": "Compliance officer: reviews seller applications.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "seller-service": [
+              "application:review"
             ]
           }
         }
@@ -113,6 +132,20 @@
           "name": "order:read-any",
           "description": "Read any buyer's orders (support and operations)"
         }
+      ],
+      "seller-service": [
+        {
+          "name": "application:submit",
+          "description": "Apply to become a seller and manage one's own application"
+        },
+        {
+          "name": "application:review",
+          "description": "Review seller applications (compliance)"
+        },
+        {
+          "name": "application:review-senior",
+          "description": "Second review of high-risk applications and escalated reviews (compliance leads)"
+        }
       ]
     }
   },
@@ -148,6 +181,17 @@
       "enabled": true,
       "publicClient": false,
       "secret": "order-service-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "seller-service",
+      "name": "Seller service",
+      "description": "Holds the seller-application permissions (resource server) and grants approved applicants their seller role (service account).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "seller-service-dev-secret",
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
@@ -276,6 +320,18 @@
       }
     },
     {
+      "username": "service-account-seller-service",
+      "enabled": true,
+      "serviceAccountClientId": "seller-service",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "manage-users",
+          "view-realm"
+        ]
+      }
+    },
+    {
       "username": "service-account-souqly-ops",
       "enabled": true,
       "serviceAccountClientId": "souqly-ops",
@@ -358,6 +414,24 @@
       ],
       "realmRoles": [
         "seller"
+      ]
+    },
+    {
+      "username": "compliance",
+      "email": "compliance@souqly.dev",
+      "emailVerified": true,
+      "firstName": "Cora",
+      "lastName": "Compliance",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "compliance-password-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "compliance"
       ]
     },
     {

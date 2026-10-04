@@ -1,0 +1,100 @@
+spring:
+  application:
+    name: seller-service
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/souqly_sellers}
+    username: ${DATABASE_USER:souqly}
+    password: ${DATABASE_PASSWORD:souqly-postgres-dev-secret}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/souqly}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/certs}
+          audiences: ${souqly.security.resource-client-id}
+      # This service's own identity, for granting approved applicants their seller role.
+      client:
+        registration:
+          keycloak-admin:
+            provider: keycloak
+            client-id: seller-service
+            client-secret: ${SELLER_SERVICE_CLIENT_SECRET:seller-service-dev-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${OIDC_TOKEN_URI:http://localhost:8180/realms/souqly/protocol/openid-connect/token}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+
+camunda:
+  bpm:
+    # Engine tables are created on first start here; production applies the engine's SQL scripts
+    # through migrations instead.
+    database:
+      schema-update: true
+    job-execution:
+      enabled: true
+    generic-properties:
+      properties:
+        history-time-to-live: P180D
+        # Asynchronous steps (screening, provisioning, publishing) retry before raising an incident.
+        failed-job-retry-time-cycle: ${JOB_RETRY_CYCLE:R5/PT30S}
+        enforce-history-time-to-live: true
+    metrics:
+      enabled: false
+
+server:
+  port: ${SERVER_PORT:8085}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+souqly:
+  security:
+    resource-client-id: seller-service
+  # The seller-kyc form.
+  formio:
+    base-url: ${FORMIO_URL:http://localhost:3001}
+    email: ${FORMIO_EMAIL:admin@souqly.dev}
+    password: ${FORMIO_PASSWORD:formio-admin-dev}
+  onboarding:
+    review-sla: ${REVIEW_SLA:PT48H}
+    information-deadline: ${INFORMATION_DEADLINE:P14D}
+    # Keyed hash for bank, phone and licence identifiers in events; never published.
+    identifier-key: ${IDENTIFIER_HASH_KEY:souqly-identifier-hash-dev-key}
+    topics:
+      applications: sellers.applications.v1
+    keycloak:
+      admin-url: ${KEYCLOAK_ADMIN_URL:http://localhost:8180}
+      realm: souqly
+    storage:
+      endpoint: ${S3_ENDPOINT:http://localhost:9000}
+      public-endpoint: ${S3_PUBLIC_ENDPOINT:http://localhost:9000}
+      access-key: ${S3_ACCESS_KEY:souqly}
+      secret-key: ${S3_SECRET_KEY:souqly-minio-dev-secret}
+      bucket: souqly-seller-documents

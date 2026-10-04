@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Creates or updates the Souqly category forms in Form.io from infra/formio/forms/*.json.
+# Creates or updates the Souqly forms (category schemas, seller KYC) in Form.io from infra/formio/forms/*.json.
 # Category forms are code: admins may prototype in the Form.io builder, but what ships is reviewed
 # JSON. Safe to run repeatedly.  Requires curl and jq.
 set -euo pipefail
