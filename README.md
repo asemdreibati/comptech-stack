@@ -6,14 +6,16 @@ tests that prove it.
 
 [![CI](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/asemdreibati/comptech-stack/actions/workflows/ci.yml)
 
-> **Status:** phases 1–4 of 9 are done.
+> **Status:** phases 1–5 of 9 are done.
 > **Phase 1:** an inventory service that cannot oversell during flash sales.
 > **Phase 2:** Keycloak identity, per-object authorization, and a WSO2 API gateway.
 > **Phase 3:** a catalog whose category schemas live in Form.io, verified image uploads to MinIO,
 > and Arabic/English search on OpenSearch built purely from events.
 > **Phase 4:** checkout as a saga that never double-charges, never loses stock, and finishes
 > what a crashed instance started.
-> Next: seller onboarding and returns with Camunda ([roadmap](docs/roadmap.md)).
+> **Phase 5:** seller onboarding (KYC) and returns as BPMN workflows with SLA timers, four-eyes
+> approval and disputes, on the Camunda 7 engine (CIB seven).
+> Next: trust and recommendations with Neo4j ([roadmap](docs/roadmap.md)).
 
 ## Architecture today
 
@@ -31,6 +33,13 @@ flowchart LR
     GW --> CAT[catalog-service]
     GW --> SRCH[search-service]
     WEB -->|buyer JWT, checkout| ORD[order-service<br/>checkout saga]
+    WEB -->|apply, review| SEL[seller-service<br/>KYC workflow]
+    WEB -->|return, decide, inspect| RET[returns-service<br/>returns workflow]
+    SEL -->|grant seller role| KC
+    SEL -.->|KYC documents| MINIO
+    SEL -->|KYC form| FIO
+    RET -->|partial refund| PSP
+    SEL & RET --> PG[(PostgreSQL<br/>CIB seven engines)]
     ORD -->|service token: reserve, confirm, release| INV
     ORD -->|charge, refund<br/>Idempotency-Key| PSP[Payment provider]
     CAT -->|dry-run validation| FIO[Form.io<br/>category schemas]
@@ -40,9 +49,12 @@ flowchart LR
     INV -->|stock levels| K[[Kafka<br/>compacted topics]]
     CAT -->|listing snapshots| K
     ORD -->|order events| K
+    SEL -->|application events| K
+    RET -->|return events| K
     K -->|listings| ORD & INV
+    K -->|orders| RET
     K --> SRCH --> OS[(OpenSearch)]
-    KC[(Keycloak)] -. JWKS .-> GW & INV & CAT & ORD
+    KC[(Keycloak)] -. JWKS .-> GW & INV & CAT & ORD & SEL & RET
 ```
 
 Every service validates every token itself, publishes through a transactional outbox, and shares
@@ -125,12 +137,42 @@ result is persisted before the next step.
 
 See [ADR 0004](docs/adr/0004-checkout-saga.md).
 
+## Phase 5: workflows with people in them
+
+Two processes that take days and involve people run as BPMN models on **CIB seven**, the
+Apache-licensed continuation of Camunda 7, embedded in each service on PostgreSQL. The models are
+in `services/*/src/main/resources/processes` and open as diagrams in Camunda Modeler.
+
+**Seller onboarding.** An applicant fills in a Form.io KYC form and uploads documents straight to
+a private bucket. The workflow then:
+
+- screens for other applicants with the same bank account or licence, and sets a risk tier in a
+  DMN table;
+- gives compliance a 48-hour SLA that escalates to leads without taking the task away;
+- lets reviewers ask for more information, with a 14-day deadline;
+- requires a **second, different reviewer** for high-risk approvals;
+- on approval, **grants the seller role and `seller_id` in Keycloak**, so the applicant's next
+  sign-in can list products.
+
+**Returns.** A DMN policy approves small or seller-fault returns; otherwise the seller decides
+within 2 days, and silence approves. The buyer can dispute a rejection, and operations arbitrate.
+An approved return waits for the parcel (or cancels after 14 days). The warehouse inspects it, and
+passing items are refunded partially and idempotently through the PSP. A row lock stops concurrent
+requests from returning more than was bought.
+
+**One guarantee for both:** each status change is an asynchronous job that also publishes its
+event, so the engine's job table works as the outbox. A step that keeps failing (Keycloak, the
+PSP) becomes an incident for operations, not a guess. Events carry bank and phone details only
+as keyed hashes.
+
+See [ADR 0005](docs/adr/0005-workflows-onboarding-and-returns.md).
+
 ## How it is verified
 
 | Layer | What runs |
 |---|---|
-| Unit and integration tests | 80 tests on real MongoDB, Redis, Kafka, Keycloak, Form.io, MinIO and OpenSearch in Testcontainers (WireMock only for the payment provider and other services' HTTP APIs): concurrency races, authorization matrix, tampered tokens, ETag conflicts, disguised uploads, out-of-order events, Arabic matching, dead-lettering, PSP timeouts, compensation, crash recovery |
-| Marketplace journey | `infra/e2e/marketplace-smoke.sh`: a seller lists, uploads, publishes and restocks a phone; search finds it in both languages and in stock; a buyer is declined (stock returns), checks out, retries safely, is refused more than is left, and buys the rest; search shows it sold out |
+| Unit and integration tests | 104 tests on real MongoDB, PostgreSQL, Redis, Kafka, Keycloak, Form.io, MinIO and OpenSearch in Testcontainers (WireMock only for the payment provider and other services' HTTP APIs): concurrency races, authorization matrix, tampered tokens, ETag conflicts, disguised uploads, out-of-order events, Arabic matching, dead-lettering, PSP timeouts, compensation, crash recovery, workflow timers, four-eyes approval, incidents and their recovery |
+| Marketplace journey | `infra/e2e/marketplace-smoke.sh`: a new user applies to sell, compliance approves, and they sign in as a seller; they list, upload, publish and restock a phone; search finds it in both languages; a buyer is declined (stock returns), checks out, retries safely, is refused more than is left, and buys the rest; the buyer returns one unit, the seller approves, the warehouse inspects it and the buyer is refunded |
 | Gateway | `infra/wso2/smoke-test.sh`: 15 checks across the Inventory, Catalog and Storefront APIs (auth, subscriptions, ownership, public search, rate limits) |
 | Load | Flash-sale test fails the build on a single oversold or undersold unit |
 | CI | All of the above on every push, the platform started from scratch |
@@ -141,7 +183,7 @@ layered non-root images, and graceful shutdown.
 
 ## Run it
 
-Requirements: Java 21, Docker, `curl` and `jq`. About 6 GB of RAM for the platform, plus 2 GB for
+Requirements: Java 21, Docker, `curl` and `jq`. About 8 GB of RAM for the platform, plus 2 GB for
 the gateway.
 
 ```bash
@@ -160,30 +202,35 @@ curl -k 'https://localhost:8243/storefront/v1/search?q=phone&f.storage=256&inSto
 
 | What | Where |
 |---|---|
-| Inventory, catalog, search, order APIs | http://localhost:8081, :8082, :8083, :8084 (each has `/swagger-ui.html`) |
+| Inventory, catalog, search, order, seller, returns APIs | http://localhost:8081, :8082, :8083, :8084, :8085, :8086 (each has `/swagger-ui.html`) |
 | Fake payment provider | http://localhost:12111 ([infra/psp](infra/psp/README.md)) |
 | Gateway | https://localhost:8243/{inventory,catalog,storefront}/v1 · portals at https://localhost:9443/publisher, `/devportal` (admin/admin) |
 | Keycloak | http://localhost:8180 (admin/admin) |
 | Form.io | http://localhost:3001 (admin@souqly.dev / formio-admin-dev) |
 | MinIO console | http://localhost:9001 (souqly / souqly-minio-dev-secret) |
 | OpenSearch | http://localhost:9200 |
+| PostgreSQL (workflow services) | localhost:5432 (souqly / souqly-postgres-dev-secret) |
 
-Development accounts (`souqly-dev-cli` client): `buyer`, `seller-acme`, `seller-globex`, `admin`.
+Development accounts (`souqly-dev-cli` client): `buyer`, `seller-acme`, `seller-globex`, `compliance`,
+`warehouse`, `admin`.
 Service accounts: `order-service`, `souqly-ops`, `seller-acme-integration`. All secrets are
 development-only.
 
 ## Repository layout
 
 ```
-libs/platform                Shared: Keycloak security baseline, transactional outbox, Mongo transactions
+libs/platform                Shared: Keycloak security, outbox, Mongo transactions, Form.io, object storage, PSP client
 services/inventory-service   Reservations, flash-sale gate, stock ledger
 services/catalog-service     Categories (Form.io), listings, verified image uploads (MinIO)
 services/search-service      OpenSearch read model, search and autocomplete API
 services/order-service       Checkout saga, price book, order history
+services/seller-service      Seller onboarding: KYC applications and their review workflow
+services/returns-service     Returns: policy, seller decisions, disputes, inspection, refunds
 infra/keycloak               Realm: roles, permissions, clients, service accounts
-infra/formio                 Category forms and their bootstrap
+infra/formio                 Category and seller KYC forms, and their bootstrap
 infra/wso2                   Gateway config, public API definitions, bootstrap and smoke test
 infra/psp                    Fake Stripe-style payment provider (WireMock)
+infra/postgres               Databases of the workflow services
 infra/e2e                    Cross-service journey test
 load-tests/                  k6 scenarios
 docs/adr/                    Architecture decision records
@@ -192,6 +239,6 @@ docs/adr/                    Architecture decision records
 ## Tech
 
 Java 21 (virtual threads) · Spring Boot 4.1 · Spring Security 7 · Keycloak 26 · WSO2 API Manager
-4.5 · MongoDB 8 · Redis 7 · Apache Kafka 4 · Form.io · MinIO (S3 API, AWS SDK v2) · OpenSearch 3 ·
-Micrometer + Prometheus · Testcontainers · WireMock · k6 · GitHub Actions.
-Camunda and Neo4j join in later phases ([roadmap](docs/roadmap.md)).
+4.5 · MongoDB 8 · PostgreSQL 17 · CIB seven 2.2 (Camunda 7 BPMN/DMN engine) · Redis 7 · Apache Kafka 4 ·
+Form.io · MinIO (S3 API, AWS SDK v2) · OpenSearch 3 · Flyway · Micrometer + Prometheus ·
+Testcontainers · WireMock · k6 · GitHub Actions. Neo4j joins in phase 6 ([roadmap](docs/roadmap.md)).

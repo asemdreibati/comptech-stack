@@ -16,7 +16,7 @@
     "realm": [
       {
         "name": "buyer",
-        "description": "Shops on the storefront: checks out, reads their own orders, and can apply to become a seller.",
+        "description": "Shops on the storefront: checks out, reads and returns their own orders, and can apply to become a seller.",
         "composite": true,
         "composites": {
           "client": {
@@ -25,6 +25,9 @@
             ],
             "seller-service": [
               "application:submit"
+            ],
+            "returns-service": [
+              "return:request"
             ]
           }
         }
@@ -41,6 +44,9 @@
             ],
             "catalog-service": [
               "product:write"
+            ],
+            "returns-service": [
+              "return:decide"
             ]
           }
         }
@@ -69,6 +75,10 @@
             "seller-service": [
               "application:review",
               "application:review-senior"
+            ],
+            "returns-service": [
+              "return:arbitrate",
+              "return:handle"
             ]
           }
         }
@@ -81,6 +91,18 @@
           "client": {
             "seller-service": [
               "application:review"
+            ]
+          }
+        }
+      },
+      {
+        "name": "warehouse",
+        "description": "Warehouse staff: receive and inspect returned parcels.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "returns-service": [
+              "return:handle"
             ]
           }
         }
@@ -146,6 +168,24 @@
           "name": "application:review-senior",
           "description": "Second review of high-risk applications and escalated reviews (compliance leads)"
         }
+      ],
+      "returns-service": [
+        {
+          "name": "return:request",
+          "description": "Return items from one's own orders and answer a seller's rejection"
+        },
+        {
+          "name": "return:decide",
+          "description": "Approve or reject returns of one's own products (sellers)"
+        },
+        {
+          "name": "return:arbitrate",
+          "description": "Settle return disputes between buyers and sellers (operations)"
+        },
+        {
+          "name": "return:handle",
+          "description": "Receive and inspect returned parcels (warehouse)"
+        }
       ]
     }
   },
@@ -195,6 +235,18 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "returns-service",
+      "name": "Returns service (resource server)",
+      "description": "Holds the returns permissions. No login flows are enabled.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "returns-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
     },
     {
       "clientId": "souqly-ops",
@@ -432,6 +484,24 @@
       ],
       "realmRoles": [
         "compliance"
+      ]
+    },
+    {
+      "username": "warehouse",
+      "email": "warehouse@souqly.dev",
+      "emailVerified": true,
+      "firstName": "Wes",
+      "lastName": "Warehouse",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "warehouse-password-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "warehouse"
       ]
     },
     {
