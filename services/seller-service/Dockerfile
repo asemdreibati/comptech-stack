@@ -15,6 +15,7 @@ COPY --from=layers /build/extracted/snapshot-dependencies/ ./
 COPY --from=layers /build/extracted/application/ ./
 EXPOSE 8085
 ENV SERVER_PORT=8085
-HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=3 \
+# The embedded workflow engine creates or checks its tables on start, which is slower under load.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=120s --retries=6 \
   CMD wget -qO- http://localhost:8085/actuator/health/readiness || exit 1
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "org.springframework.boot.loader.launch.JarLauncher"]
