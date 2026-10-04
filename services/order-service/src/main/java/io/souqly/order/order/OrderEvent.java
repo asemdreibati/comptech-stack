@@ -7,7 +7,11 @@ import java.util.UUID;
 
 import io.souqly.platform.outbox.OutboxWriter;
 
-/** The order's state after each saga step, keyed by order ID (event-carried state transfer). */
+/**
+ * The order's state after each saga step, keyed by order ID (event-carried state transfer).
+ *
+ * @param paymentId the PSP payment once captured, so returns can refund against it
+ */
 public record OrderEvent(
         String eventId,
         String eventType,
@@ -19,6 +23,7 @@ public record OrderEvent(
         BigDecimal total,
         String currency,
         Failure failure,
+        String paymentId,
         long version) {
 
     static OutboxWriter.Message messageFor(String topic, Order order, Instant occurredAt) {
@@ -34,7 +39,7 @@ public record OrderEvent(
             case NEEDS_ATTENTION -> "NeedsAttention";
         };
         var event = new OrderEvent(eventId, type, occurredAt, order.id(), order.buyerId(), order.status(),
-                order.lines(), order.total(), order.currency(), order.failure(), order.version());
+                order.lines(), order.total(), order.currency(), order.failure(), order.paymentId(), order.version());
         return new OutboxWriter.Message(eventId, topic, "Order", order.id(), type, occurredAt, event);
     }
 }

@@ -24,7 +24,7 @@ import io.souqly.order.order.OrderLine;
 import io.souqly.order.order.OrderStatus;
 import io.souqly.order.order.OrderStore;
 import io.souqly.order.order.StatusChange;
-import io.souqly.order.payment.PaymentGateway;
+import io.souqly.platform.payments.PaymentGateway;
 import io.souqly.order.pricing.PriceBook;
 import io.souqly.order.pricing.ProductPrice;
 import io.souqly.order.saga.CheckoutSaga;

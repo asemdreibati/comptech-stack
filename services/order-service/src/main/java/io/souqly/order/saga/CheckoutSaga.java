@@ -7,7 +7,7 @@ import io.souqly.order.order.Failure;
 import io.souqly.order.order.Order;
 import io.souqly.order.order.OrderStatus;
 import io.souqly.order.order.OrderStore;
-import io.souqly.order.payment.PaymentGateway;
+import io.souqly.platform.payments.PaymentGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -3,6 +3,9 @@ package io.souqly.order.config;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
+import io.souqly.platform.payments.PaymentGateway;
+import tools.jackson.databind.json.JsonMapper;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -51,12 +54,12 @@ class ClientsConfig {
     }
 
     @Bean
-    RestClient paymentsHttp(RestClient.Builder builder, OrderProperties properties) {
-        return builder.clone()
+    PaymentGateway paymentGateway(RestClient.Builder builder, OrderProperties properties, JsonMapper json) {
+        return new PaymentGateway(builder.clone()
                 .baseUrl(properties.payments().baseUrl().toString())
                 .requestFactory(requestFactory(properties.payments().timeout()))
                 .defaultHeader("Authorization", "Bearer " + properties.payments().apiKey())
-                .build();
+                .build(), json);
     }
 
     private static JdkClientHttpRequestFactory requestFactory(Duration timeout) {

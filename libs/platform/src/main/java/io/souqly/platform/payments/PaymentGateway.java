@@ -1,4 +1,4 @@
-package io.souqly.order.payment;
+package io.souqly.platform.payments;
 
 import java.math.BigDecimal;
 import java.util.Currency;
@@ -8,9 +8,7 @@ import java.util.Map;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -21,8 +19,10 @@ import org.springframework.web.client.RestClientException;
  * the original result instead of charging again. Every charge uses a key derived from the order,
  * so after a timeout (when the charge may or may not have happened) the saga simply asks again
  * with the same key and gets the definitive answer. A timeout is never treated as a decline.
+ *
+ * <p>Not a bean: each service builds one around its own {@link RestClient}, which carries the PSP's
+ * base URL, API key and timeouts.
  */
-@Component
 public class PaymentGateway {
 
     public sealed interface Outcome {
@@ -41,7 +41,7 @@ public class PaymentGateway {
     private final RestClient http;
     private final JsonMapper json;
 
-    public PaymentGateway(@Qualifier("paymentsHttp") RestClient http, JsonMapper json) {
+    public PaymentGateway(RestClient http, JsonMapper json) {
         this.http = http;
         this.json = json;
     }
@@ -62,8 +62,15 @@ public class PaymentGateway {
         return amount.movePointRight(Currency.getInstance(currency).getDefaultFractionDigits()).longValueExact();
     }
 
+    /** Refunds a payment in full. */
     public Outcome refund(String idempotencyKey, String paymentId) {
         return post("/v1/refunds", idempotencyKey, Map.of("payment_intent", paymentId));
+    }
+
+    /** Refunds part of a payment, e.g. the items of a return. */
+    public Outcome refund(String idempotencyKey, String paymentId, BigDecimal amount, String currency) {
+        return post("/v1/refunds", idempotencyKey, Map.of("payment_intent", paymentId,
+                "amount", minorUnits(amount, currency)));
     }
 
     private Outcome post(String path, String idempotencyKey, Map<String, ?> body) {
