@@ -1,0 +1,21 @@
+{
+  "name": "Payment intent: confirmed and captured",
+  "priority": 5,
+  "request": {
+    "method": "POST",
+    "url": "/v1/payment_intents",
+    "headers": {"Idempotency-Key": {"matches": ".+"}}
+  },
+  "response": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {
+      "id": "pi_{{request.headers.Idempotency-Key}}",
+      "object": "payment_intent",
+      "amount": "{{jsonPath request.body '$.amount'}}",
+      "currency": "{{jsonPath request.body '$.currency'}}",
+      "status": "succeeded"
+    },
+    "transformers": ["response-template"]
+  }
+}

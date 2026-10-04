@@ -21,6 +21,13 @@ check() { # description, expected status, actual status
 }
 token() { curl -sS --fail "$TOKEN_URL" -d grant_type=client_credentials -d "client_id=$1" -d "client_secret=$2" | jq -r .access_token; }
 status() { curl -sk -o /dev/null -w '%{http_code}' "$@"; }
+# APIs are deployed to the gateway asynchronously; until one is loaded its paths answer 404.
+await_api() { # url, status the loaded API answers with
+  for _ in $(seq 1 60); do
+    [[ $(status "$1") == "$2" ]] && return
+    sleep 2
+  done
+}
 
 ACME=$(token seller-acme-integration seller-acme-dev-secret)
 OPS=$(token souqly-ops souqly-ops-dev-secret)
@@ -28,11 +35,9 @@ ORDERS=$(token order-service order-service-dev-secret)
 SKU="ACME-SMOKE-$(date +%s)"
 JSON=(-H 'Content-Type: application/json')
 
-# The API is published asynchronously: until the gateway has loaded it, unknown paths are 404.
-for _ in $(seq 1 30); do
-  [[ $(status "$GATEWAY/stock/$SKU") == 401 ]] && break
-  sleep 2
-done
+await_api "$GATEWAY/stock/$SKU" 401
+await_api "$CATALOG/categories" 401
+await_api "$STOREFRONT/search?q=phone" 200
 
 echo "Gateway: authentication and subscriptions"
 check "no token is rejected at the gateway" 401 "$(status "$GATEWAY/stock/$SKU")"
@@ -58,10 +63,6 @@ check "client without a catalog subscription is rejected" 403 \
 check "subscribed seller reads categories" 200 "$(status "$CATALOG/categories" -H "Authorization: Bearer $ACME")"
 
 echo "Storefront API: public search"
-for _ in $(seq 1 30); do
-  [[ $(status "$STOREFRONT/search?q=phone") == 200 ]] && break
-  sleep 2
-done
 check "search needs no token" 200 "$(status "$STOREFRONT/search?q=phone&f.storage=256&inStock=true")"
 check "suggestions need no token" 200 "$(status "$STOREFRONT/search/suggest?q=ph")"
 check "only reads are routed" 405 "$(status -X POST "$STOREFRONT/search")"

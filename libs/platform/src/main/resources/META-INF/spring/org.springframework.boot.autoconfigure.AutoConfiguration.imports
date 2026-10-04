@@ -2,3 +2,4 @@ io.souqly.platform.PlatformAutoConfiguration
 io.souqly.platform.mongo.PlatformMongoAutoConfiguration
 io.souqly.platform.outbox.OutboxAutoConfiguration
 io.souqly.platform.security.PlatformSecurityAutoConfiguration
+io.souqly.platform.formio.FormioAutoConfiguration

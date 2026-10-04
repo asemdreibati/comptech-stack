@@ -5,15 +5,15 @@ import java.util.Map;
 
 import io.souqly.catalog.api.Preconditions.PreconditionRequiredException;
 import io.souqly.catalog.category.CategoryNotFoundException;
-import io.souqly.catalog.formio.AttributeValidationException;
-import io.souqly.catalog.formio.FormNotFoundException;
-import io.souqly.catalog.formio.SchemaUnavailableException;
 import io.souqly.catalog.product.ProductExceptions.InvalidImageException;
 import io.souqly.catalog.product.ProductExceptions.ProductAccessDeniedException;
 import io.souqly.catalog.product.ProductExceptions.ProductNotFoundException;
 import io.souqly.catalog.product.ProductExceptions.ProductStateException;
 import io.souqly.catalog.product.ProductExceptions.SkuTakenException;
 import io.souqly.catalog.product.ProductExceptions.VersionConflictException;
+import io.souqly.platform.formio.FormNotFoundException;
+import io.souqly.platform.formio.FormValidationException;
+import io.souqly.platform.formio.FormioUnavailableException;
 import io.souqly.platform.mongo.TransactionContentionException;
 import io.souqly.platform.web.Problems;
 
@@ -43,9 +43,9 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             "UPLOAD_MISSING", HttpStatus.CONFLICT);
 
     @ExceptionHandler
-    ProblemDetail attributes(AttributeValidationException ex) {
+    ProblemDetail attributes(FormValidationException ex) {
         var problem = Problems.of(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_ATTRIBUTES", "Invalid listing attributes",
-                ex.getMessage());
+                "Listing attributes are invalid for this category");
         problem.setProperty("errors", ex.errors());
         return problem;
     }
@@ -102,7 +102,7 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler
-    ResponseEntity<ProblemDetail> schemaUnavailable(SchemaUnavailableException ex) {
+    ResponseEntity<ProblemDetail> schemaUnavailable(FormioUnavailableException ex) {
         logger.warn("Category schemas unavailable: " + ex.getMessage());
         var problem = Problems.of(HttpStatus.SERVICE_UNAVAILABLE, "SCHEMA_UNAVAILABLE",
                 "Listings cannot be validated right now", "The category schema service is unavailable");

@@ -1,0 +1,14 @@
+{
+  "name": "Any call without the secret key",
+  "priority": 1,
+  "request": {
+    "method": "ANY",
+    "urlPattern": "/v1/.*",
+    "headers": {"Authorization": {"doesNotMatch": "Bearer sk_test_.+"}}
+  },
+  "response": {
+    "status": 401,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {"error": {"type": "invalid_request_error", "message": "Invalid API key provided"}}
+  }
+}

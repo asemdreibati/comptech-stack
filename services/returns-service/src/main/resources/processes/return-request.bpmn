@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  id="Definitions_ReturnRequest" targetNamespace="https://souqly.io/bpmn"
+                  exporter="Souqly" exporterVersion="1">
+
+  <bpmn:message id="Message_ParcelReceived" name="ParcelReceived" />
+
+  <bpmn:process id="return-request" name="Return request" isExecutable="true" camunda:historyTimeToLive="P180D">
+    <bpmn:documentation>From a buyer's return request to a refund, a rejection or a cancellation. Every status
+      change runs in its own asynchronous job together with the event that announces it.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_Requested" name="Return requested">
+      <bpmn:outgoing>Flow_Start</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:businessRuleTask id="Task_ApplyPolicy" name="Apply return policy" camunda:asyncBefore="true"
+                           camunda:decisionRef="return-policy" camunda:resultVariable="route"
+                           camunda:mapDecisionResult="singleEntry">
+      <bpmn:incoming>Flow_Start</bpmn:incoming>
+      <bpmn:outgoing>Flow_PolicyApplied</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Route" name="Who decides?">
+      <bpmn:incoming>Flow_PolicyApplied</bpmn:incoming>
+      <bpmn:outgoing>Flow_PolicyApproves</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SellerDecides</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_AskSeller" name="Ask the seller" camunda:asyncBefore="true"
+                      camunda:expression="${returns.askSeller(execution)}">
+      <bpmn:incoming>Flow_SellerDecides</bpmn:incoming>
+      <bpmn:outgoing>Flow_SellerAsked</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_SellerDecision" name="Seller decides" camunda:candidateGroups="seller-${sellerId}">
+      <bpmn:incoming>Flow_SellerAsked</bpmn:incoming>
+      <bpmn:outgoing>Flow_SellerDecided</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="Timer_SellerSla" name="No answer in time" attachedToRef="Task_SellerDecision">
+      <bpmn:outgoing>Flow_SellerSilent</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_SellerSla">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${sellerSla}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:serviceTask id="Task_SellerSilent" name="Record seller silence"
+                      camunda:expression="${returns.sellerSilent(execution)}">
+      <bpmn:incoming>Flow_SellerSilent</bpmn:incoming>
+      <bpmn:outgoing>Flow_SilenceRecorded</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_SellerDecision" name="Seller decision?">
+      <bpmn:incoming>Flow_SellerDecided</bpmn:incoming>
+      <bpmn:outgoing>Flow_SellerApproves</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SellerRejects</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_SellerRejected" name="Tell the buyer" camunda:asyncBefore="true"
+                      camunda:expression="${returns.sellerRejected(execution)}">
+      <bpmn:incoming>Flow_SellerRejects</bpmn:incoming>
+      <bpmn:outgoing>Flow_BuyerTold</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_BuyerResponse" name="Buyer accepts or disputes" camunda:assignee="${buyerId}">
+      <bpmn:incoming>Flow_BuyerTold</bpmn:incoming>
+      <bpmn:outgoing>Flow_BuyerResponded</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="Timer_DisputeWindow" name="No dispute in time" attachedToRef="Task_BuyerResponse">
+      <bpmn:outgoing>Flow_NoDispute</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_DisputeWindow">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${disputeWindow}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:exclusiveGateway id="Gateway_BuyerResponse" name="Buyer disputes?">
+      <bpmn:incoming>Flow_BuyerResponded</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dispute</bpmn:outgoing>
+      <bpmn:outgoing>Flow_BuyerAccepts</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_OpenDispute" name="Open dispute" camunda:asyncBefore="true"
+                      camunda:expression="${returns.openDispute(execution)}">
+      <bpmn:incoming>Flow_Dispute</bpmn:incoming>
+      <bpmn:outgoing>Flow_DisputeOpened</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_Arbitrate" name="Marketplace arbitrates" camunda:candidateGroups="marketplace-ops">
+      <bpmn:incoming>Flow_DisputeOpened</bpmn:incoming>
+      <bpmn:outgoing>Flow_Arbitrated</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Arbitration" name="Ruling?">
+      <bpmn:incoming>Flow_Arbitrated</bpmn:incoming>
+      <bpmn:outgoing>Flow_RulingApproves</bpmn:outgoing>
+      <bpmn:outgoing>Flow_RulingRejects</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_Reject" name="Reject return" camunda:asyncBefore="true"
+                      camunda:expression="${returns.reject(execution)}">
+      <bpmn:incoming>Flow_BuyerAccepts</bpmn:incoming>
+      <bpmn:incoming>Flow_NoDispute</bpmn:incoming>
+      <bpmn:incoming>Flow_RulingRejects</bpmn:incoming>
+      <bpmn:incoming>Flow_InspectionFails</bpmn:incoming>
+      <bpmn:outgoing>Flow_Rejected</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Rejected" name="Return rejected">
+      <bpmn:incoming>Flow_Rejected</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="Task_Approve" name="Approve return" camunda:asyncBefore="true"
+                      camunda:expression="${returns.approve(execution)}">
+      <bpmn:incoming>Flow_PolicyApproves</bpmn:incoming>
+      <bpmn:incoming>Flow_SilenceRecorded</bpmn:incoming>
+      <bpmn:incoming>Flow_SellerApproves</bpmn:incoming>
+      <bpmn:incoming>Flow_RulingApproves</bpmn:incoming>
+      <bpmn:outgoing>Flow_Approved</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:eventBasedGateway id="Gateway_AwaitParcel" name="Parcel arrives?">
+      <bpmn:incoming>Flow_Approved</bpmn:incoming>
+      <bpmn:outgoing>Flow_ToParcel</bpmn:outgoing>
+      <bpmn:outgoing>Flow_ToShippingDeadline</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+
+    <bpmn:intermediateCatchEvent id="Event_ParcelReceived" name="Parcel received">
+      <bpmn:incoming>Flow_ToParcel</bpmn:incoming>
+      <bpmn:outgoing>Flow_ParcelReceived</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MessageDef_ParcelReceived" messageRef="Message_ParcelReceived" />
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:intermediateCatchEvent id="Timer_ShippingWindow" name="Not sent in time">
+      <bpmn:incoming>Flow_ToShippingDeadline</bpmn:incoming>
+      <bpmn:outgoing>Flow_NotSent</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerDef_ShippingWindow">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${shippingWindow}</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+
+    <bpmn:serviceTask id="Task_Cancel" name="Cancel return" camunda:asyncBefore="true"
+                      camunda:expression="${returns.cancel(execution)}">
+      <bpmn:incoming>Flow_NotSent</bpmn:incoming>
+      <bpmn:outgoing>Flow_Cancelled</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Cancelled" name="Return cancelled">
+      <bpmn:incoming>Flow_Cancelled</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="Task_Receive" name="Record receipt" camunda:asyncBefore="true"
+                      camunda:expression="${returns.receive(execution)}">
+      <bpmn:incoming>Flow_ParcelReceived</bpmn:incoming>
+      <bpmn:outgoing>Flow_ReceiptRecorded</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_Inspect" name="Inspect items" camunda:candidateGroups="warehouse">
+      <bpmn:incoming>Flow_ReceiptRecorded</bpmn:incoming>
+      <bpmn:outgoing>Flow_Inspected</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Inspection" name="Inspection passed?">
+      <bpmn:incoming>Flow_Inspected</bpmn:incoming>
+      <bpmn:outgoing>Flow_InspectionPasses</bpmn:outgoing>
+      <bpmn:outgoing>Flow_InspectionFails</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_Refund" name="Refund the buyer" camunda:asyncBefore="true"
+                      camunda:expression="${returns.refund(execution)}">
+      <bpmn:documentation>Idempotent at the PSP (key return-&lt;id&gt;): a retried job never refunds twice.</bpmn:documentation>
+      <bpmn:incoming>Flow_InspectionPasses</bpmn:incoming>
+      <bpmn:outgoing>Flow_RefundMade</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Refunded" name="Record refund" camunda:asyncBefore="true"
+                      camunda:expression="${returns.refunded(execution)}">
+      <bpmn:incoming>Flow_RefundMade</bpmn:incoming>
+      <bpmn:outgoing>Flow_RefundRecorded</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Refunded" name="Buyer refunded">
+      <bpmn:incoming>Flow_RefundRecorded</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start" sourceRef="Start_Requested" targetRef="Task_ApplyPolicy" />
+    <bpmn:sequenceFlow id="Flow_PolicyApplied" sourceRef="Task_ApplyPolicy" targetRef="Gateway_Route" />
+    <bpmn:sequenceFlow id="Flow_PolicyApproves" name="Policy approves" sourceRef="Gateway_Route" targetRef="Task_Approve">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${route == 'AUTO_APPROVE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_SellerDecides" name="Seller decides" sourceRef="Gateway_Route" targetRef="Task_AskSeller">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${route == 'SELLER_DECIDES'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_SellerAsked" sourceRef="Task_AskSeller" targetRef="Task_SellerDecision" />
+    <bpmn:sequenceFlow id="Flow_SellerDecided" sourceRef="Task_SellerDecision" targetRef="Gateway_SellerDecision" />
+    <bpmn:sequenceFlow id="Flow_SellerSilent" sourceRef="Timer_SellerSla" targetRef="Task_SellerSilent" />
+    <bpmn:sequenceFlow id="Flow_SilenceRecorded" sourceRef="Task_SellerSilent" targetRef="Task_Approve" />
+    <bpmn:sequenceFlow id="Flow_SellerApproves" name="Approve" sourceRef="Gateway_SellerDecision" targetRef="Task_Approve">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${sellerDecision == 'APPROVE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_SellerRejects" name="Reject" sourceRef="Gateway_SellerDecision" targetRef="Task_SellerRejected">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${sellerDecision == 'REJECT'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_BuyerTold" sourceRef="Task_SellerRejected" targetRef="Task_BuyerResponse" />
+    <bpmn:sequenceFlow id="Flow_BuyerResponded" sourceRef="Task_BuyerResponse" targetRef="Gateway_BuyerResponse" />
+    <bpmn:sequenceFlow id="Flow_NoDispute" sourceRef="Timer_DisputeWindow" targetRef="Task_Reject" />
+    <bpmn:sequenceFlow id="Flow_Dispute" name="Dispute" sourceRef="Gateway_BuyerResponse" targetRef="Task_OpenDispute">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${buyerResponse == 'DISPUTE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_BuyerAccepts" name="Accept" sourceRef="Gateway_BuyerResponse" targetRef="Task_Reject">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${buyerResponse == 'ACCEPT'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_DisputeOpened" sourceRef="Task_OpenDispute" targetRef="Task_Arbitrate" />
+    <bpmn:sequenceFlow id="Flow_Arbitrated" sourceRef="Task_Arbitrate" targetRef="Gateway_Arbitration" />
+    <bpmn:sequenceFlow id="Flow_RulingApproves" name="For the buyer" sourceRef="Gateway_Arbitration" targetRef="Task_Approve">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${arbitration == 'APPROVE'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_RulingRejects" name="For the seller" sourceRef="Gateway_Arbitration" targetRef="Task_Reject">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${arbitration == 'REJECT'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Rejected" sourceRef="Task_Reject" targetRef="End_Rejected" />
+    <bpmn:sequenceFlow id="Flow_Approved" sourceRef="Task_Approve" targetRef="Gateway_AwaitParcel" />
+    <bpmn:sequenceFlow id="Flow_ToParcel" sourceRef="Gateway_AwaitParcel" targetRef="Event_ParcelReceived" />
+    <bpmn:sequenceFlow id="Flow_ToShippingDeadline" sourceRef="Gateway_AwaitParcel" targetRef="Timer_ShippingWindow" />
+    <bpmn:sequenceFlow id="Flow_NotSent" sourceRef="Timer_ShippingWindow" targetRef="Task_Cancel" />
+    <bpmn:sequenceFlow id="Flow_Cancelled" sourceRef="Task_Cancel" targetRef="End_Cancelled" />
+    <bpmn:sequenceFlow id="Flow_ParcelReceived" sourceRef="Event_ParcelReceived" targetRef="Task_Receive" />
+    <bpmn:sequenceFlow id="Flow_ReceiptRecorded" sourceRef="Task_Receive" targetRef="Task_Inspect" />
+    <bpmn:sequenceFlow id="Flow_Inspected" sourceRef="Task_Inspect" targetRef="Gateway_Inspection" />
+    <bpmn:sequenceFlow id="Flow_InspectionPasses" name="Pass" sourceRef="Gateway_Inspection" targetRef="Task_Refund">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${inspection == 'PASS'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_InspectionFails" name="Fail" sourceRef="Gateway_Inspection" targetRef="Task_Reject">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${inspection == 'FAIL'}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_RefundMade" sourceRef="Task_Refund" targetRef="Task_Refunded" />
+    <bpmn:sequenceFlow id="Flow_RefundRecorded" sourceRef="Task_Refunded" targetRef="End_Refunded" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_ReturnRequest">
+    <bpmndi:BPMNPlane id="Plane_ReturnRequest" bpmnElement="return-request">
+      <bpmndi:BPMNShape id="Start_Requested_di" bpmnElement="Start_Requested"><dc:Bounds x="172" y="302" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_ApplyPolicy_di" bpmnElement="Task_ApplyPolicy"><dc:Bounds x="260" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Route_di" bpmnElement="Gateway_Route" isMarkerVisible="true"><dc:Bounds x="415" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_AskSeller_di" bpmnElement="Task_AskSeller"><dc:Bounds x="520" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SellerDecision_di" bpmnElement="Task_SellerDecision"><dc:Bounds x="680" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Timer_SellerSla_di" bpmnElement="Timer_SellerSla"><dc:Bounds x="712" y="262" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SellerSilent_di" bpmnElement="Task_SellerSilent"><dc:Bounds x="680" y="150" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_SellerDecision_di" bpmnElement="Gateway_SellerDecision" isMarkerVisible="true"><dc:Bounds x="835" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_SellerRejected_di" bpmnElement="Task_SellerRejected"><dc:Bounds x="940" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_BuyerResponse_di" bpmnElement="Task_BuyerResponse"><dc:Bounds x="1100" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Timer_DisputeWindow_di" bpmnElement="Timer_DisputeWindow"><dc:Bounds x="1132" y="342" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_BuyerResponse_di" bpmnElement="Gateway_BuyerResponse" isMarkerVisible="true"><dc:Bounds x="1255" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_OpenDispute_di" bpmnElement="Task_OpenDispute"><dc:Bounds x="1360" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Arbitrate_di" bpmnElement="Task_Arbitrate"><dc:Bounds x="1520" y="280" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Arbitration_di" bpmnElement="Gateway_Arbitration" isMarkerVisible="true"><dc:Bounds x="1675" y="295" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Reject_di" bpmnElement="Task_Reject"><dc:Bounds x="1520" y="440" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Rejected_di" bpmnElement="End_Rejected"><dc:Bounds x="1682" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Approve_di" bpmnElement="Task_Approve"><dc:Bounds x="1800" y="80" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_AwaitParcel_di" bpmnElement="Gateway_AwaitParcel"><dc:Bounds x="1955" y="95" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Event_ParcelReceived_di" bpmnElement="Event_ParcelReceived"><dc:Bounds x="2062" y="102" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Timer_ShippingWindow_di" bpmnElement="Timer_ShippingWindow"><dc:Bounds x="2062" y="222" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Cancel_di" bpmnElement="Task_Cancel"><dc:Bounds x="2150" y="200" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Cancelled_di" bpmnElement="End_Cancelled"><dc:Bounds x="2312" y="222" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Receive_di" bpmnElement="Task_Receive"><dc:Bounds x="2150" y="80" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Inspect_di" bpmnElement="Task_Inspect"><dc:Bounds x="2310" y="80" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gateway_Inspection_di" bpmnElement="Gateway_Inspection" isMarkerVisible="true"><dc:Bounds x="2465" y="95" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Refund_di" bpmnElement="Task_Refund"><dc:Bounds x="2570" y="80" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Task_Refunded_di" bpmnElement="Task_Refunded"><dc:Bounds x="2730" y="80" width="100" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="End_Refunded_di" bpmnElement="End_Refunded"><dc:Bounds x="2892" y="102" width="36" height="36" /></bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="Flow_Start_di" bpmnElement="Flow_Start"><di:waypoint x="208" y="320" /><di:waypoint x="260" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PolicyApplied_di" bpmnElement="Flow_PolicyApplied"><di:waypoint x="360" y="320" /><di:waypoint x="415" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_PolicyApproves_di" bpmnElement="Flow_PolicyApproves"><di:waypoint x="440" y="295" /><di:waypoint x="440" y="120" /><di:waypoint x="1800" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerDecides_di" bpmnElement="Flow_SellerDecides"><di:waypoint x="465" y="320" /><di:waypoint x="520" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerAsked_di" bpmnElement="Flow_SellerAsked"><di:waypoint x="620" y="320" /><di:waypoint x="680" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerDecided_di" bpmnElement="Flow_SellerDecided"><di:waypoint x="780" y="320" /><di:waypoint x="835" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerSilent_di" bpmnElement="Flow_SellerSilent"><di:waypoint x="730" y="262" /><di:waypoint x="730" y="230" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SilenceRecorded_di" bpmnElement="Flow_SilenceRecorded"><di:waypoint x="730" y="150" /><di:waypoint x="730" y="120" /><di:waypoint x="1800" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerApproves_di" bpmnElement="Flow_SellerApproves"><di:waypoint x="860" y="295" /><di:waypoint x="860" y="120" /><di:waypoint x="1800" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_SellerRejects_di" bpmnElement="Flow_SellerRejects"><di:waypoint x="885" y="320" /><di:waypoint x="940" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BuyerTold_di" bpmnElement="Flow_BuyerTold"><di:waypoint x="1040" y="320" /><di:waypoint x="1100" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BuyerResponded_di" bpmnElement="Flow_BuyerResponded"><di:waypoint x="1200" y="320" /><di:waypoint x="1255" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_NoDispute_di" bpmnElement="Flow_NoDispute"><di:waypoint x="1150" y="378" /><di:waypoint x="1150" y="480" /><di:waypoint x="1520" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Dispute_di" bpmnElement="Flow_Dispute"><di:waypoint x="1305" y="320" /><di:waypoint x="1360" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_BuyerAccepts_di" bpmnElement="Flow_BuyerAccepts"><di:waypoint x="1280" y="345" /><di:waypoint x="1280" y="480" /><di:waypoint x="1520" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_DisputeOpened_di" bpmnElement="Flow_DisputeOpened"><di:waypoint x="1460" y="320" /><di:waypoint x="1520" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Arbitrated_di" bpmnElement="Flow_Arbitrated"><di:waypoint x="1620" y="320" /><di:waypoint x="1675" y="320" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RulingApproves_di" bpmnElement="Flow_RulingApproves"><di:waypoint x="1700" y="295" /><di:waypoint x="1700" y="120" /><di:waypoint x="1800" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RulingRejects_di" bpmnElement="Flow_RulingRejects"><di:waypoint x="1700" y="345" /><di:waypoint x="1700" y="400" /><di:waypoint x="1570" y="400" /><di:waypoint x="1570" y="440" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Rejected_di" bpmnElement="Flow_Rejected"><di:waypoint x="1620" y="480" /><di:waypoint x="1682" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Approved_di" bpmnElement="Flow_Approved"><di:waypoint x="1900" y="120" /><di:waypoint x="1955" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ToParcel_di" bpmnElement="Flow_ToParcel"><di:waypoint x="2005" y="120" /><di:waypoint x="2062" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ToShippingDeadline_di" bpmnElement="Flow_ToShippingDeadline"><di:waypoint x="1980" y="145" /><di:waypoint x="1980" y="240" /><di:waypoint x="2062" y="240" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_NotSent_di" bpmnElement="Flow_NotSent"><di:waypoint x="2098" y="240" /><di:waypoint x="2150" y="240" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Cancelled_di" bpmnElement="Flow_Cancelled"><di:waypoint x="2250" y="240" /><di:waypoint x="2312" y="240" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ParcelReceived_di" bpmnElement="Flow_ParcelReceived"><di:waypoint x="2098" y="120" /><di:waypoint x="2150" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ReceiptRecorded_di" bpmnElement="Flow_ReceiptRecorded"><di:waypoint x="2250" y="120" /><di:waypoint x="2310" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_Inspected_di" bpmnElement="Flow_Inspected"><di:waypoint x="2410" y="120" /><di:waypoint x="2465" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_InspectionPasses_di" bpmnElement="Flow_InspectionPasses"><di:waypoint x="2515" y="120" /><di:waypoint x="2570" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_InspectionFails_di" bpmnElement="Flow_InspectionFails"><di:waypoint x="2490" y="145" /><di:waypoint x="2490" y="560" /><di:waypoint x="1570" y="560" /><di:waypoint x="1570" y="520" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RefundMade_di" bpmnElement="Flow_RefundMade"><di:waypoint x="2670" y="120" /><di:waypoint x="2730" y="120" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_RefundRecorded_di" bpmnElement="Flow_RefundRecorded"><di:waypoint x="2830" y="120" /><di:waypoint x="2892" y="120" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

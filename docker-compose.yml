@@ -116,6 +116,23 @@ services:
       timeout: 3s
       retries: 20
 
+  postgres:
+    # The workflow services (seller onboarding, returns): CIB seven needs a relational database.
+    image: postgres:17-alpine
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_USER: souqly
+      POSTGRES_PASSWORD: souqly-postgres-dev-secret
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      # Over TCP: during first-boot initialisation the server only listens on a local socket.
+      test: ["CMD-SHELL", "pg_isready -h localhost -U souqly -d souqly_returns"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   opensearch:
     image: opensearchproject/opensearch:3.2.0
     ports: ["9200:9200"]
@@ -225,7 +242,89 @@ services:
       resources:
         limits: {memory: 512m}
 
+  psp:
+    # A fake Stripe-style payment provider (infra/psp): charges succeed, the test token
+    # pm_card_chargeDeclined is declined.
+    image: wiremock/wiremock:3.13.2
+    profiles: [app]
+    ports: ["12111:8080"]
+    volumes: [./infra/psp:/home/wiremock:ro]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/__admin/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  order-service:
+    build: ./services/order-service
+    profiles: [app]
+    ports: ["8084:8084"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/souqly_orders?replicaSet=rs0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
+      OIDC_TOKEN_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/token
+      INVENTORY_URL: http://inventory-service:8081/api/v1
+      PSP_URL: http://psp:8080
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    depends_on:
+      keycloak: {condition: service_healthy}
+      mongo: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      psp: {condition: service_healthy}
+      inventory-service: {condition: service_started}
+    deploy:
+      resources:
+        limits: {memory: 768m}
+
+  seller-service:
+    build: ./services/seller-service
+    profiles: [app]
+    ports: ["8085:8085"]
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/souqly_sellers
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
+      OIDC_TOKEN_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/token
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      FORMIO_URL: http://formio:3001
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    depends_on:
+      keycloak: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      formio: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {memory: 768m}
+
+  returns-service:
+    build: ./services/returns-service
+    profiles: [app]
+    ports: ["8086:8086"]
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/souqly_returns
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      OIDC_ISSUER_URI: http://localhost:8180/realms/souqly
+      OIDC_JWK_SET_URI: http://keycloak:8080/realms/souqly/protocol/openid-connect/certs
+      PSP_URL: http://psp:8080
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    depends_on:
+      keycloak: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      psp: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {memory: 768m}
+
 volumes:
+  postgres-data:
   mongo-data:
   redis-data:
   kafka-data:

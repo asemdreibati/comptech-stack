@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="Definitions_KycRisk" name="KYC risk" namespace="https://souqly.io/dmn">
+
+  <decision id="kyc-risk" name="KYC risk tier" camunda:historyTimeToLive="P180D">
+    <description>Rules are checked top to bottom and the first match wins. HIGH requires a second,
+      different reviewer before the seller is approved.</description>
+    <decisionTable id="DecisionTable_KycRisk" hitPolicy="FIRST">
+      <input id="Input_Duplicates" label="Other applicants sharing bank account or licence">
+        <inputExpression id="InputExpression_Duplicates" typeRef="long">
+          <text>duplicateCount</text>
+        </inputExpression>
+      </input>
+      <input id="Input_Orders" label="Expected orders per month">
+        <inputExpression id="InputExpression_Orders" typeRef="long">
+          <text>expectedMonthlyOrders</text>
+        </inputExpression>
+      </input>
+      <input id="Input_BusinessType" label="Business type">
+        <inputExpression id="InputExpression_BusinessType" typeRef="string">
+          <text>businessType</text>
+        </inputExpression>
+      </input>
+      <input id="Input_Country" label="Country of registration">
+        <inputExpression id="InputExpression_Country" typeRef="string">
+          <text>country</text>
+        </inputExpression>
+      </input>
+      <output id="Output_RiskTier" label="Risk tier" name="riskTier" typeRef="string" />
+
+      <rule id="Rule_SharedIdentifiers">
+        <description>One business behind several accounts, or a stolen identity</description>
+        <inputEntry id="Entry_SharedIdentifiers_Duplicates"><text>&gt; 0</text></inputEntry>
+        <inputEntry id="Entry_SharedIdentifiers_Orders"><text></text></inputEntry>
+        <inputEntry id="Entry_SharedIdentifiers_Type"><text></text></inputEntry>
+        <inputEntry id="Entry_SharedIdentifiers_Country"><text></text></inputEntry>
+        <outputEntry id="Output_SharedIdentifiers"><text>"HIGH"</text></outputEntry>
+      </rule>
+      <rule id="Rule_VeryHighVolume">
+        <description>Very high volume from day one</description>
+        <inputEntry id="Entry_VeryHighVolume_Duplicates"><text></text></inputEntry>
+        <inputEntry id="Entry_VeryHighVolume_Orders"><text>&gt; 10000</text></inputEntry>
+        <inputEntry id="Entry_VeryHighVolume_Type"><text></text></inputEntry>
+        <inputEntry id="Entry_VeryHighVolume_Country"><text></text></inputEntry>
+        <outputEntry id="Output_VeryHighVolume"><text>"HIGH"</text></outputEntry>
+      </rule>
+      <rule id="Rule_IndividualVolume">
+        <description>An individual trader with company-sized volume</description>
+        <inputEntry id="Entry_IndividualVolume_Duplicates"><text></text></inputEntry>
+        <inputEntry id="Entry_IndividualVolume_Orders"><text>&gt; 1000</text></inputEntry>
+        <inputEntry id="Entry_IndividualVolume_Type"><text>"individual"</text></inputEntry>
+        <inputEntry id="Entry_IndividualVolume_Country"><text></text></inputEntry>
+        <outputEntry id="Output_IndividualVolume"><text>"MEDIUM"</text></outputEntry>
+      </rule>
+      <rule id="Rule_CrossBorder">
+        <description>Registered outside the markets with local entities</description>
+        <inputEntry id="Entry_CrossBorder_Duplicates"><text></text></inputEntry>
+        <inputEntry id="Entry_CrossBorder_Orders"><text></text></inputEntry>
+        <inputEntry id="Entry_CrossBorder_Type"><text></text></inputEntry>
+        <inputEntry id="Entry_CrossBorder_Country"><text>not("AE","SA")</text></inputEntry>
+        <outputEntry id="Output_CrossBorder"><text>"MEDIUM"</text></outputEntry>
+      </rule>
+      <rule id="Rule_Default">
+        <inputEntry id="Entry_Default_Duplicates"><text></text></inputEntry>
+        <inputEntry id="Entry_Default_Orders"><text></text></inputEntry>
+        <inputEntry id="Entry_Default_Type"><text></text></inputEntry>
+        <inputEntry id="Entry_Default_Country"><text></text></inputEntry>
+        <outputEntry id="Output_Default"><text>"LOW"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

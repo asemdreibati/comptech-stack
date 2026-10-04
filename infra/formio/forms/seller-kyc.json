@@ -1,0 +1,62 @@
+{
+  "title": "Seller application: know your customer",
+  "name": "sellerKyc",
+  "path": "seller-kyc",
+  "type": "form",
+  "display": "form",
+  "tags": ["souqly-onboarding"],
+  "components": [
+    {
+      "type": "panel", "key": "business", "title": "Business", "input": false,
+      "components": [
+        {
+          "type": "textfield", "key": "legalName", "label": "Legal business name", "input": true,
+          "validate": {"required": true, "minLength": 2, "maxLength": 120}
+        },
+        {
+          "type": "radio", "key": "businessType", "label": "Business type", "input": true,
+          "values": [{"label": "Company", "value": "company"}, {"label": "Individual trader", "value": "individual"}],
+          "validate": {"required": true}
+        },
+        {
+          "type": "textfield", "key": "tradeLicenceNumber", "label": "Trade licence number", "input": true,
+          "validate": {"required": true, "pattern": "^[A-Z0-9-]{5,20}$",
+                       "customMessage": "Use 5-20 capital letters, digits or dashes"}
+        },
+        {
+          "type": "select", "key": "country", "label": "Country of registration", "input": true,
+          "dataSrc": "values",
+          "data": {"values": [
+            {"label": "United Arab Emirates", "value": "AE"}, {"label": "Saudi Arabia", "value": "SA"},
+            {"label": "Egypt", "value": "EG"}, {"label": "Jordan", "value": "JO"}
+          ]},
+          "validate": {"required": true, "onlyAvailableItems": true}
+        },
+        {
+          "type": "number", "key": "expectedMonthlyOrders", "label": "Expected orders per month", "input": true,
+          "validate": {"required": true, "min": 0, "max": 1000000}
+        }
+      ]
+    },
+    {
+      "type": "panel", "key": "contact", "title": "Contact and payout", "input": false,
+      "components": [
+        {
+          "type": "textarea", "key": "address", "label": "Registered address", "input": true,
+          "validate": {"required": true, "minLength": 10, "maxLength": 300}
+        },
+        {
+          "type": "textfield", "key": "phone", "label": "Business phone", "input": true,
+          "validate": {"required": true, "pattern": "^\\+[0-9]{8,15}$",
+                       "customMessage": "Use international format, e.g. +971501234567"}
+        },
+        {
+          "type": "textfield", "key": "iban", "label": "Payout IBAN", "input": true,
+          "validate": {"required": true, "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$",
+                       "customMessage": "Enter the IBAN without spaces"}
+        }
+      ]
+    },
+    {"type": "button", "key": "submit", "label": "Submit", "input": true, "action": "submit"}
+  ]
+}

@@ -16,7 +16,21 @@
     "realm": [
       {
         "name": "buyer",
-        "description": "Shops on the storefront. Has no direct access to back-office APIs."
+        "description": "Shops on the storefront: checks out, reads and returns their own orders, and can apply to become a seller.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "order-service": [
+              "order:place"
+            ],
+            "seller-service": [
+              "application:submit"
+            ],
+            "returns-service": [
+              "return:request"
+            ]
+          }
+        }
       },
       {
         "name": "seller",
@@ -30,6 +44,9 @@
             ],
             "catalog-service": [
               "product:write"
+            ],
+            "returns-service": [
+              "return:decide"
             ]
           }
         }
@@ -51,6 +68,41 @@
               "category:manage",
               "product:write",
               "product:write-any"
+            ],
+            "order-service": [
+              "order:read-any"
+            ],
+            "seller-service": [
+              "application:review",
+              "application:review-senior"
+            ],
+            "returns-service": [
+              "return:arbitrate",
+              "return:handle"
+            ]
+          }
+        }
+      },
+      {
+        "name": "compliance",
+        "description": "Compliance officer: reviews seller applications.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "seller-service": [
+              "application:review"
+            ]
+          }
+        }
+      },
+      {
+        "name": "warehouse",
+        "description": "Warehouse staff: receive and inspect returned parcels.",
+        "composite": true,
+        "composites": {
+          "client": {
+            "returns-service": [
+              "return:handle"
             ]
           }
         }
@@ -92,6 +144,48 @@
           "name": "product:write-any",
           "description": "Edit any listing regardless of owning seller"
         }
+      ],
+      "order-service": [
+        {
+          "name": "order:place",
+          "description": "Check out and read one's own orders"
+        },
+        {
+          "name": "order:read-any",
+          "description": "Read any buyer's orders (support and operations)"
+        }
+      ],
+      "seller-service": [
+        {
+          "name": "application:submit",
+          "description": "Apply to become a seller and manage one's own application"
+        },
+        {
+          "name": "application:review",
+          "description": "Review seller applications (compliance)"
+        },
+        {
+          "name": "application:review-senior",
+          "description": "Second review of high-risk applications and escalated reviews (compliance leads)"
+        }
+      ],
+      "returns-service": [
+        {
+          "name": "return:request",
+          "description": "Return items from one's own orders and answer a seller's rejection"
+        },
+        {
+          "name": "return:decide",
+          "description": "Approve or reject returns of one's own products (sellers)"
+        },
+        {
+          "name": "return:arbitrate",
+          "description": "Settle return disputes between buyers and sellers (operations)"
+        },
+        {
+          "name": "return:handle",
+          "description": "Receive and inspect returned parcels (warehouse)"
+        }
       ]
     }
   },
@@ -123,13 +217,36 @@
     {
       "clientId": "order-service",
       "name": "Order service",
-      "description": "Reserves stock during checkout (client credentials).",
+      "description": "Holds the order permissions (resource server) and reserves stock during checkout (client credentials).",
       "enabled": true,
       "publicClient": false,
       "secret": "order-service-dev-secret",
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "seller-service",
+      "name": "Seller service",
+      "description": "Holds the seller-application permissions (resource server) and grants approved applicants their seller role (service account).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "seller-service-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "returns-service",
+      "name": "Returns service (resource server)",
+      "description": "Holds the returns permissions. No login flows are enabled.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "returns-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
     },
     {
       "clientId": "souqly-ops",
@@ -255,6 +372,18 @@
       }
     },
     {
+      "username": "service-account-seller-service",
+      "enabled": true,
+      "serviceAccountClientId": "seller-service",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "manage-users",
+          "view-realm"
+        ]
+      }
+    },
+    {
       "username": "service-account-souqly-ops",
       "enabled": true,
       "serviceAccountClientId": "souqly-ops",
@@ -337,6 +466,42 @@
       ],
       "realmRoles": [
         "seller"
+      ]
+    },
+    {
+      "username": "compliance",
+      "email": "compliance@souqly.dev",
+      "emailVerified": true,
+      "firstName": "Cora",
+      "lastName": "Compliance",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "compliance-password-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "compliance"
+      ]
+    },
+    {
+      "username": "warehouse",
+      "email": "warehouse@souqly.dev",
+      "emailVerified": true,
+      "firstName": "Wes",
+      "lastName": "Warehouse",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "warehouse-password-dev",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "warehouse"
       ]
     },
     {

@@ -52,6 +52,11 @@ springdoc:
 souqly:
   security:
     resource-client-id: catalog-service
+  # Category attribute schemas.
+  formio:
+    base-url: ${FORMIO_URL:http://localhost:3001}
+    email: ${FORMIO_EMAIL:admin@souqly.dev}
+    password: ${FORMIO_PASSWORD:formio-admin-dev}
   catalog:
     topics:
       products: catalog.products.v1
@@ -62,7 +67,3 @@ souqly:
       access-key: ${S3_ACCESS_KEY:souqly}
       secret-key: ${S3_SECRET_KEY:souqly-minio-dev-secret}
       bucket: souqly-product-images
-    formio:
-      base-url: ${FORMIO_URL:http://localhost:3001}
-      email: ${FORMIO_EMAIL:admin@souqly.dev}
-      password: ${FORMIO_PASSWORD:formio-admin-dev}

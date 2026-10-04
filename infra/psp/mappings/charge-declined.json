@@ -1,0 +1,16 @@
+{
+  "name": "Payment intent: Stripe's test card that is always declined",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/v1/payment_intents",
+    "bodyPatterns": [{"matchesJsonPath": "$[?(@.payment_method == 'pm_card_chargeDeclined')]"}]
+  },
+  "response": {
+    "status": 402,
+    "headers": {"Content-Type": "application/json"},
+    "jsonBody": {
+      "error": {"type": "card_error", "code": "card_declined", "message": "Your card was declined."}
+    }
+  }
+}
